@@ -211,6 +211,14 @@ impl Grid {
         crate::tree_f32::FloatAccessor::from_grid_bytes(self.raw_bytes())
     }
 
+    /// Random-access accessor for `Vec3f` grids. Currently a stub —
+    /// returns `Some(...)` for the matching grid type but lookups
+    /// return `Vec3f::ZERO`. See `tree_vec3f.rs` for the follow-up
+    /// notes; consumers can prepare call sites today.
+    pub fn vec3f_accessor(&self) -> Option<crate::tree_vec3f::Vec3fAccessor<'_>> {
+        crate::tree_vec3f::Vec3fAccessor::from_grid_bytes(self.raw_bytes())
+    }
+
     /// World-space point -> index-space (voxel) coordinate via the
     /// grid's stored affine transform. Mirrors v4's
     /// `Grid::worldToIndex(p)`.

@@ -1,6 +1,6 @@
 [package]
 name = "nanovdb-rs"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 authors = ["Toru Matsuoka <tx.matsuoka@gmail.com>"]
 license = "MPL-2.0"

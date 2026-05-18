@@ -7,7 +7,9 @@
 //! point lookups against `FloatGrid` voxel data with either nearest or
 //! trilinear interpolation.
 //!
-//! `Vec3f` / `Double` accessors are planned for a follow-up release.
+//! `Vec3f` accessor is currently a stub that recognises the grid type
+//! but does not yet walk the tree. `Double` accessor is planned for a
+//! follow-up release.
 //!
 //! ## Quick start
 //!
@@ -48,6 +50,7 @@ mod grid_data;
 mod header;
 mod metadata;
 mod tree_f32;
+mod tree_vec3f;
 mod types;
 
 pub use error::Error;
@@ -56,4 +59,5 @@ pub use grid_data::{GridDataHeader, Map, GRID_DATA_SIZE, MAP_SIZE};
 pub use header::{Codec, SegmentHeader, Version};
 pub use metadata::GridMetadata;
 pub use tree_f32::FloatAccessor;
+pub use tree_vec3f::{Vec3f, Vec3fAccessor};
 pub use types::{GridClass, GridType, Vec3d};
