@@ -1,0 +1,23 @@
+[package]
+name = "nanovdb-rs"
+version = "0.0.1"
+edition = "2021"
+authors = ["Toru Matsuoka <tx.matsuoka@gmail.com>"]
+license = "Apache-2.0"
+description = "Pure-Rust reader for NanoVDB (.nvdb) sparse volumetric grid files."
+repository = "https://github.com/ototoi/nanovdb-rs"
+readme = "README.md"
+keywords = ["nanovdb", "openvdb", "volumetric", "rendering", "vdb"]
+categories = ["rendering::data-formats", "graphics", "no-std::no-alloc"]
+
+[dependencies]
+memmap2 = "0.9"
+flate2 = { version = "1", optional = true }
+
+[features]
+default = ["zip"]
+# Enables ZIP (zlib) decompression of NanoVDB segments. Without this
+# feature, opening a `Codec::Zip` file returns `Error::CompressionUnsupported`.
+zip = ["dep:flate2"]
+
+[dev-dependencies]
