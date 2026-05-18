@@ -48,4 +48,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## License
 
-Apache 2.0, matching upstream OpenVDB/NanoVDB. See [`LICENSE`](LICENSE).
+Mozilla Public License 2.0, matching upstream OpenVDB/NanoVDB. See
+[`LICENSE`](LICENSE).
