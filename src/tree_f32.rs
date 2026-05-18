@@ -25,6 +25,9 @@ const UPPER_MASK: i32 = (1 << UPPER_LOG2DIM) - 1; // 31
 /// Offset of the root inside the grid's bytes. v4 `TreeData::mNodeOffset[3]`.
 pub const TREE_DATA_OFFSET_IN_GRID: usize = GRID_DATA_SIZE;
 
+/// Byte offsets to each tree level inside a grid's bytes. Cheap to
+/// compute (just 4 `u64` reads) and `Copy`, so it can be cached and
+/// passed by value to repeated [`FloatAccessor::with_tree`] calls.
 #[derive(Debug, Clone, Copy)]
 pub struct TreeOffsets {
     pub leaf_offset: u64,
@@ -181,6 +184,51 @@ impl<'a> FloatAccessor<'a> {
             tree,
             background,
         })
+    }
+
+    /// Parse just the bits the tree walker needs (`TreeOffsets` +
+    /// `background`) without going through the full `GridDataHeader`
+    /// parse. Use this once at scene-build time and pair the result
+    /// with [`FloatAccessor::with_tree`] on the hot path to avoid the
+    /// `String` allocation that `GridDataHeader::parse` does on every
+    /// call.
+    ///
+    /// Returns `None` if the grid is not a `Float` grid or the bytes
+    /// are too short to hold a valid header.
+    pub fn parse_offsets(bytes: &[u8]) -> Option<(TreeOffsets, f32)> {
+        if bytes.len() < GRID_DATA_SIZE + 64 {
+            return None;
+        }
+        // GridType lives at offset 636 in GridData.
+        let grid_type = u32::from_le_bytes(bytes[636..640].try_into().unwrap());
+        if crate::types::GridType::from_raw(grid_type) != crate::types::GridType::Float {
+            return None;
+        }
+        let tree_data_offset = GRID_DATA_SIZE;
+        let tree = TreeOffsets::parse(&bytes[tree_data_offset..tree_data_offset + 64]);
+        let root_abs = tree_data_offset + tree.root_offset as usize;
+        if root_abs + 32 > bytes.len() {
+            return None;
+        }
+        let background = f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
+        Some((tree, background))
+    }
+
+    /// Construct a `FloatAccessor` from precomputed `TreeOffsets` and
+    /// background value (see [`FloatAccessor::parse_offsets`]). This is
+    /// the cheap path: no header parse, no allocation. Suitable for use
+    /// in inner loops that need to read voxels billions of times.
+    ///
+    /// Safety / correctness: `bytes` must be the same grid bytes that
+    /// were used to compute `tree`/`background`. The accessor blindly
+    /// trusts the offsets.
+    pub fn with_tree(bytes: &'a [u8], tree: TreeOffsets, background: f32) -> Self {
+        FloatAccessor {
+            grid_bytes: bytes,
+            tree_data_offset: GRID_DATA_SIZE,
+            tree,
+            background,
+        }
     }
 
     /// `nanovdb::Tree::background()` -- value of unset voxels.

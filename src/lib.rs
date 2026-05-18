@@ -58,6 +58,6 @@ pub use file::{Grid, NvdbFile};
 pub use grid_data::{GridDataHeader, Map, GRID_DATA_SIZE, MAP_SIZE};
 pub use header::{Codec, SegmentHeader, Version};
 pub use metadata::GridMetadata;
-pub use tree_f32::FloatAccessor;
+pub use tree_f32::{FloatAccessor, TreeOffsets};
 pub use tree_vec3f::{Vec3f, Vec3fAccessor};
 pub use types::{GridClass, GridType, Vec3d};
