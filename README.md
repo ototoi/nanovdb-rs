@@ -22,13 +22,15 @@ voxel-level tree traversal is a follow-up release.
       walk
 - [x] ZIP (zlib) compressed segments (default `zip` feature, via
       `flate2`)
-- [ ] In-crate voxel point lookup (Float / Vec3f random access)
+- [x] In-crate voxel point lookup for `FloatGrid` (`FloatAccessor`)
+      with trilinear interpolation + index<->world transform
+- [ ] `Vec3f` / `Double` grid accessors
 - [ ] BLOSC compressed segments
 
 ## Usage
 
 ```rust
-use nanovdb_rs::NvdbFile;
+use nanovdb_rs::{NvdbFile, Vec3d};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let file = NvdbFile::open("bunny_cloud.nvdb")?;
@@ -41,6 +43,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             grid.metadata.index_bbox_min,
             grid.metadata.index_bbox_max,
         );
+        // Random-access a float grid via the (i, j, k) accessor.
+        if let Some(acc) = grid.float_accessor() {
+            let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
+            println!(
+                "  background={} at world (0,0,0) -> idx ({:.3}, {:.3}, {:.3}), tri={}",
+                acc.background(),
+                idx.x, idx.y, idx.z,
+                acc.sample_trilinear([idx.x, idx.y, idx.z]),
+            );
+        }
     }
     Ok(())
 }

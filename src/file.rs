@@ -185,7 +185,8 @@ impl Grid {
 
     /// Raw grid bytes (`metadata.grid_size` long; decompressed for ZIP).
     /// Callers can reinterpret these as a `nanovdb::NanoGrid<T>` struct
-    /// on the receiving side once the in-memory tree walker lands.
+    /// or use the higher-level `float_accessor` / `world_to_index` /
+    /// `value_at_index` helpers on this `Grid`.
     pub fn raw_bytes(&self) -> &[u8] {
         match &self.bytes {
             GridBytes::Mmap { mmap, offset, len } => {
@@ -195,6 +196,31 @@ impl Grid {
             }
             GridBytes::Owned(buf) => buf.as_slice(),
         }
+    }
+
+    /// Parse the in-memory `GridData` header that begins at offset 0 of
+    /// `raw_bytes()`. Cheap (just byte unpacking, no allocation beyond
+    /// the grid name).
+    pub fn header(&self) -> Option<crate::grid_data::GridDataHeader> {
+        crate::grid_data::GridDataHeader::parse(self.raw_bytes())
+    }
+
+    /// Random-access accessor for `Float` grids. Returns `None` for
+    /// non-float grid types; callers can match on `value_type()` first.
+    pub fn float_accessor(&self) -> Option<crate::tree_f32::FloatAccessor<'_>> {
+        crate::tree_f32::FloatAccessor::from_grid_bytes(self.raw_bytes())
+    }
+
+    /// World-space point -> index-space (voxel) coordinate via the
+    /// grid's stored affine transform. Mirrors v4's
+    /// `Grid::worldToIndex(p)`.
+    pub fn world_to_index(&self, world: crate::types::Vec3d) -> Option<crate::types::Vec3d> {
+        Some(self.header()?.map.apply_inverse_map(world))
+    }
+
+    /// Index-space (voxel) coordinate -> world-space point.
+    pub fn index_to_world(&self, idx: crate::types::Vec3d) -> Option<crate::types::Vec3d> {
+        Some(self.header()?.map.apply_map(idx))
     }
 }
 
@@ -245,5 +271,67 @@ mod tests {
         };
         let file = NvdbFile::open(&path).expect("open fire");
         assert!(!file.grids().is_empty());
+    }
+
+    #[test]
+    fn float_accessor_bunny_cloud() {
+        let Some(path) = fixture("bunny_cloud.nvdb") else {
+            eprintln!("bunny_cloud.nvdb not present; skipping");
+            return;
+        };
+        let file = NvdbFile::open(&path).expect("open bunny_cloud");
+        let grid = &file.grids()[0];
+        let accessor = grid.float_accessor().expect("float accessor");
+        let (bbox_min, bbox_max) = grid.index_bbox();
+        let bg = accessor.background();
+
+        // Voxels outside the bbox should report the background value.
+        let outside = accessor.value_at_index([
+            bbox_min[0] - 10,
+            bbox_min[1] - 10,
+            bbox_min[2] - 10,
+        ]);
+        assert_eq!(outside, bg);
+
+        // Voxels strictly inside the bbox should be readable -- many
+        // of them will be > 0 for an actual cloud asset. We just count
+        // a few non-background hits across the bbox to confirm the
+        // tree walk is finding leaves.
+        let mid = [
+            (bbox_min[0] + bbox_max[0]) / 2,
+            (bbox_min[1] + bbox_max[1]) / 2,
+            (bbox_min[2] + bbox_max[2]) / 2,
+        ];
+        let mut non_bg = 0;
+        for di in -8..=8 {
+            for dj in -8..=8 {
+                for dk in -8..=8 {
+                    let v = accessor.value_at_index([mid[0] + di, mid[1] + dj, mid[2] + dk]);
+                    if (v - bg).abs() > 1e-6 {
+                        non_bg += 1;
+                    }
+                }
+            }
+        }
+        eprintln!("non-background hits near center: {}/4913", non_bg);
+        assert!(non_bg > 0, "expected at least one non-background voxel near bbox centre");
+
+        // World -> index round-trip via the grid map.
+        let mid_world = grid.index_to_world(crate::types::Vec3d::new(
+            mid[0] as f64,
+            mid[1] as f64,
+            mid[2] as f64,
+        )).unwrap();
+        let mid_idx = grid.world_to_index(mid_world).unwrap();
+        for (a, b) in [(mid_idx.x, mid[0] as f64), (mid_idx.y, mid[1] as f64), (mid_idx.z, mid[2] as f64)] {
+            assert!((a - b).abs() < 1e-6, "round-trip drift: {} vs {}", a, b);
+        }
+
+        // Trilinear sampling at integer coordinates should agree with
+        // the integer accessor (within FP epsilon).
+        let v_int = accessor.value_at_index(mid);
+        let v_tri = accessor.sample_trilinear([mid[0] as f64, mid[1] as f64, mid[2] as f64]);
+        assert!((v_int - v_tri).abs() <= 1e-5, "trilinear({}, {}, {})={} vs int={}",
+            mid[0], mid[1], mid[2], v_tri, v_int);
     }
 }
