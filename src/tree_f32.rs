@@ -129,7 +129,7 @@ fn internal_header_size(log2dim: i32) -> usize {
     let n = 1usize << (3 * log2dim as usize);
     let mask_bytes = n / 8;
     let pre = 24 + 8 + mask_bytes * 2 + 16; // bbox+flags+valuemask+childmask+(min/max/avg/std)
-    // round up to NANOVDB_DATA_ALIGNMENT (32)
+                                            // round up to NANOVDB_DATA_ALIGNMENT (32)
     (pre + 31) & !31
 }
 
@@ -168,16 +168,15 @@ impl<'a> FloatAccessor<'a> {
         let header = GridDataHeader::parse(bytes)?;
         // Only Float and FogVolume-ish FloatGrids are handled here.
         // Use `GridType::from_raw` to confirm; caller can also check.
-        if crate::types::GridType::from_raw(header.grid_type)
-            != crate::types::GridType::Float
-        {
+        if crate::types::GridType::from_raw(header.grid_type) != crate::types::GridType::Float {
             return None;
         }
         let tree_data_offset = GRID_DATA_SIZE;
         let tree = TreeOffsets::parse(&bytes[tree_data_offset..tree_data_offset + 64]);
         // background is RootData[28..32].
         let root_abs = tree_data_offset + tree.root_offset as usize;
-        let background = f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
+        let background =
+            f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
         Some(FloatAccessor {
             grid_bytes: bytes,
             tree_data_offset,
@@ -210,7 +209,8 @@ impl<'a> FloatAccessor<'a> {
         if root_abs + 32 > bytes.len() {
             return None;
         }
-        let background = f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
+        let background =
+            f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
         Some((tree, background))
     }
 
@@ -240,8 +240,11 @@ impl<'a> FloatAccessor<'a> {
     /// missing voxels, matching v4's `Tree::getValue(ijk)` behaviour.
     pub fn value_at_index(&self, ijk: [i32; 3]) -> f32 {
         let root_abs = self.tree_data_offset + self.tree.root_offset as usize;
-        let table_size =
-            u32::from_le_bytes(self.grid_bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
+        let table_size = u32::from_le_bytes(
+            self.grid_bytes[root_abs + 24..root_abs + 28]
+                .try_into()
+                .unwrap(),
+        );
 
         // Search root tiles for one whose key matches the high bits of ijk.
         let key = coord_to_root_key(ijk);
@@ -263,12 +266,16 @@ impl<'a> FloatAccessor<'a> {
             None => return self.background,
         };
         let child = i64::from_le_bytes(
-            self.grid_bytes[tile_off + 8..tile_off + 16].try_into().unwrap(),
+            self.grid_bytes[tile_off + 8..tile_off + 16]
+                .try_into()
+                .unwrap(),
         );
         if child == 0 {
             // No child -> use the tile's value.
             return f32::from_le_bytes(
-                self.grid_bytes[tile_off + 20..tile_off + 24].try_into().unwrap(),
+                self.grid_bytes[tile_off + 20..tile_off + 24]
+                    .try_into()
+                    .unwrap(),
             );
         }
         let upper_abs = (root_abs as i64 + child) as usize;
@@ -290,13 +297,19 @@ impl<'a> FloatAccessor<'a> {
         ) {
             // child slot -> lower internal node
             let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8].try_into().unwrap(),
+                self.grid_bytes[entry_off..entry_off + 8]
+                    .try_into()
+                    .unwrap(),
             );
             let lower_abs = (upper_abs as i64 + child_byte_off) as usize;
             self.read_lower(lower_abs, ijk)
         } else {
             // tile value (active or inactive both stored as f32)
-            f32::from_le_bytes(self.grid_bytes[entry_off..entry_off + 4].try_into().unwrap())
+            f32::from_le_bytes(
+                self.grid_bytes[entry_off..entry_off + 4]
+                    .try_into()
+                    .unwrap(),
+            )
         }
     }
 
@@ -314,12 +327,18 @@ impl<'a> FloatAccessor<'a> {
             off,
         ) {
             let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8].try_into().unwrap(),
+                self.grid_bytes[entry_off..entry_off + 8]
+                    .try_into()
+                    .unwrap(),
             );
             let leaf_abs = (lower_abs as i64 + child_byte_off) as usize;
             self.read_leaf(leaf_abs, ijk)
         } else {
-            f32::from_le_bytes(self.grid_bytes[entry_off..entry_off + 4].try_into().unwrap())
+            f32::from_le_bytes(
+                self.grid_bytes[entry_off..entry_off + 4]
+                    .try_into()
+                    .unwrap(),
+            )
         }
     }
 
@@ -355,23 +374,35 @@ impl<'a> FloatAccessor<'a> {
         let ty = (idx[1] - fy as f64) as f32;
         let tz = (idx[2] - fz as f64) as f32;
 
-        let v000 = self.value_at_index([fx, fy, fz]);
-        let v100 = self.value_at_index([fx + 1, fy, fz]);
-        let v010 = self.value_at_index([fx, fy + 1, fz]);
-        let v110 = self.value_at_index([fx + 1, fy + 1, fz]);
-        let v001 = self.value_at_index([fx, fy, fz + 1]);
-        let v101 = self.value_at_index([fx + 1, fy, fz + 1]);
-        let v011 = self.value_at_index([fx, fy + 1, fz + 1]);
-        let v111 = self.value_at_index([fx + 1, fy + 1, fz + 1]);
-
         let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
-        let c00 = lerp(v000, v100, tx);
-        let c10 = lerp(v010, v110, tx);
-        let c01 = lerp(v001, v101, tx);
-        let c11 = lerp(v011, v111, tx);
-        let c0 = lerp(c00, c10, ty);
-        let c1 = lerp(c01, c11, ty);
-        lerp(c0, c1, tz)
+        let mut coord = [fx, fy, fz];
+
+        let vz = self.value_at_index(coord);
+        coord[2] += 1;
+        let vz1 = self.value_at_index(coord);
+        let vy = lerp(vz, vz1, tz);
+
+        coord[1] += 1;
+        let vz1 = self.value_at_index(coord);
+        coord[2] -= 1;
+        let vz = self.value_at_index(coord);
+        let vy1 = lerp(vz, vz1, tz);
+        let vx = lerp(vy, vy1, ty);
+
+        coord[0] += 1;
+        let vz = self.value_at_index(coord);
+        coord[2] += 1;
+        let vz1 = self.value_at_index(coord);
+        let vy1 = lerp(vz, vz1, tz);
+
+        coord[1] -= 1;
+        let vz1 = self.value_at_index(coord);
+        coord[2] -= 1;
+        let vz = self.value_at_index(coord);
+        let vy = lerp(vz, vz1, tz);
+        let vx1 = lerp(vy, vy1, ty);
+
+        lerp(vx, vx1, tx)
     }
 
     /// True if `(i, j, k)` is in the value mask of its leaf, matching
@@ -382,8 +413,11 @@ impl<'a> FloatAccessor<'a> {
         // value mask for internal). For simplicity we just check the
         // leaf path; tiled-active values report as false here.
         let root_abs = self.tree_data_offset + self.tree.root_offset as usize;
-        let table_size =
-            u32::from_le_bytes(self.grid_bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
+        let table_size = u32::from_le_bytes(
+            self.grid_bytes[root_abs + 24..root_abs + 28]
+                .try_into()
+                .unwrap(),
+        );
         let key = coord_to_root_key(ijk);
         let tiles_off = root_abs + ROOT_HEADER_SIZE;
         let mut tile_match: Option<usize> = None;
@@ -400,11 +434,15 @@ impl<'a> FloatAccessor<'a> {
             return false;
         };
         let child = i64::from_le_bytes(
-            self.grid_bytes[tile_off + 8..tile_off + 16].try_into().unwrap(),
+            self.grid_bytes[tile_off + 8..tile_off + 16]
+                .try_into()
+                .unwrap(),
         );
         if child == 0 {
             let state = u32::from_le_bytes(
-                self.grid_bytes[tile_off + 16..tile_off + 20].try_into().unwrap(),
+                self.grid_bytes[tile_off + 16..tile_off + 20]
+                    .try_into()
+                    .unwrap(),
             );
             return state != 0;
         }
@@ -425,12 +463,17 @@ impl<'a> FloatAccessor<'a> {
             off,
         ) {
             let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8].try_into().unwrap(),
+                self.grid_bytes[entry_off..entry_off + 8]
+                    .try_into()
+                    .unwrap(),
             );
             let lower_abs = (upper_abs as i64 + child_byte_off) as usize;
             self.is_active_lower(lower_abs, ijk)
         } else {
-            mask_is_on(&self.grid_bytes[value_mask_off..value_mask_off + m_size], off)
+            mask_is_on(
+                &self.grid_bytes[value_mask_off..value_mask_off + m_size],
+                off,
+            )
         }
     }
 
@@ -447,13 +490,21 @@ impl<'a> FloatAccessor<'a> {
             off,
         ) {
             let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8].try_into().unwrap(),
+                self.grid_bytes[entry_off..entry_off + 8]
+                    .try_into()
+                    .unwrap(),
             );
             let leaf_abs = (lower_abs as i64 + child_byte_off) as usize;
             let value_mask_off = leaf_abs + LEAF_VALUE_MASK_OFF;
-            mask_is_on(&self.grid_bytes[value_mask_off..value_mask_off + 64], leaf_offset(ijk))
+            mask_is_on(
+                &self.grid_bytes[value_mask_off..value_mask_off + 64],
+                leaf_offset(ijk),
+            )
         } else {
-            mask_is_on(&self.grid_bytes[value_mask_off..value_mask_off + m_size], off)
+            mask_is_on(
+                &self.grid_bytes[value_mask_off..value_mask_off + m_size],
+                off,
+            )
         }
     }
 }

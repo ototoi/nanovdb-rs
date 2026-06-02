@@ -53,17 +53,27 @@ impl Map {
             f64::from_le_bytes(bytes[vec_d_off + 8..vec_d_off + 16].try_into().unwrap()),
             f64::from_le_bytes(bytes[vec_d_off + 16..vec_d_off + 24].try_into().unwrap()),
         ];
-        Map { mat_d, inv_mat_d, vec_d }
+        Map {
+            mat_d,
+            inv_mat_d,
+            vec_d,
+        }
     }
 
     /// pbrt-v4 `Map::applyMap(idx) = mat_d * idx + vec_d`. The
     /// "voxel" -> "world" direction.
     pub fn apply_map(&self, idx: Vec3d) -> Vec3d {
-        let x = self.mat_d[0][0] * idx.x + self.mat_d[0][1] * idx.y + self.mat_d[0][2] * idx.z
+        let x = self.mat_d[0][0] * idx.x
+            + self.mat_d[0][1] * idx.y
+            + self.mat_d[0][2] * idx.z
             + self.vec_d[0];
-        let y = self.mat_d[1][0] * idx.x + self.mat_d[1][1] * idx.y + self.mat_d[1][2] * idx.z
+        let y = self.mat_d[1][0] * idx.x
+            + self.mat_d[1][1] * idx.y
+            + self.mat_d[1][2] * idx.z
             + self.vec_d[1];
-        let z = self.mat_d[2][0] * idx.x + self.mat_d[2][1] * idx.y + self.mat_d[2][2] * idx.z
+        let z = self.mat_d[2][0] * idx.x
+            + self.mat_d[2][1] * idx.y
+            + self.mat_d[2][2] * idx.z
             + self.vec_d[2];
         Vec3d::new(x, y, z)
     }
@@ -71,16 +81,17 @@ impl Map {
     /// pbrt-v4 `Map::applyInverseMap(world) = inv_mat * (world - vec)`.
     /// The "world" -> "voxel" direction.
     pub fn apply_inverse_map(&self, world: Vec3d) -> Vec3d {
-        let d = [world.x - self.vec_d[0], world.y - self.vec_d[1], world.z - self.vec_d[2]];
-        let x = self.inv_mat_d[0][0] * d[0]
-            + self.inv_mat_d[0][1] * d[1]
-            + self.inv_mat_d[0][2] * d[2];
-        let y = self.inv_mat_d[1][0] * d[0]
-            + self.inv_mat_d[1][1] * d[1]
-            + self.inv_mat_d[1][2] * d[2];
-        let z = self.inv_mat_d[2][0] * d[0]
-            + self.inv_mat_d[2][1] * d[1]
-            + self.inv_mat_d[2][2] * d[2];
+        let d = [
+            world.x - self.vec_d[0],
+            world.y - self.vec_d[1],
+            world.z - self.vec_d[2],
+        ];
+        let x =
+            self.inv_mat_d[0][0] * d[0] + self.inv_mat_d[0][1] * d[1] + self.inv_mat_d[0][2] * d[2];
+        let y =
+            self.inv_mat_d[1][0] * d[0] + self.inv_mat_d[1][1] * d[1] + self.inv_mat_d[1][2] * d[2];
+        let z =
+            self.inv_mat_d[2][0] * d[0] + self.inv_mat_d[2][1] * d[1] + self.inv_mat_d[2][2] * d[2];
         Vec3d::new(x, y, z)
     }
 }
@@ -122,7 +133,10 @@ impl GridDataHeader {
 
         let name_bytes = &bytes[40..40 + MAX_NAME_SIZE];
         let grid_name = String::from_utf8_lossy(
-            &name_bytes[..name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len())],
+            &name_bytes[..name_bytes
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(name_bytes.len())],
         )
         .into_owned();
 
