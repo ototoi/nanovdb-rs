@@ -24,7 +24,7 @@
 //!         grid.value_type(),
 //!         grid.voxel_count()
 //!     );
-//!     if let Some(acc) = grid.float_read_accessor() {
+//!     if let Some(mut acc) = grid.float_read_accessor() {
 //!         let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
 //!         let v = acc.sample_trilinear([idx.x, idx.y, idx.z]);
 //!         println!("  sample at world (0,0,0): {}", v);

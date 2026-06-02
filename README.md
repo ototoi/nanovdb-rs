@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             grid.metadata.index_bbox_max,
         );
         // Random-access a float grid via the (i, j, k) accessor.
-        if let Some(acc) = grid.float_read_accessor() {
+        if let Some(mut acc) = grid.float_read_accessor() {
             let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
             println!(
                 "  background={} at world (0,0,0) -> idx ({:.3}, {:.3}, {:.3}), tri={}",
