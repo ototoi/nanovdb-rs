@@ -137,6 +137,8 @@ fn mask_is_on(mask_bytes: &[u8], offset: u32) -> bool {
 //   24..32  padding
 const ROOT_HEADER_SIZE: usize = 64;
 const ROOT_TILE_SIZE: usize = 32;
+const UPPER_MASK_SIZE: usize = (1usize << (3 * UPPER_LOG2DIM as usize)) / 8;
+const LOWER_MASK_SIZE: usize = (1usize << (3 * LOWER_LOG2DIM as usize)) / 8;
 
 // ---- InternalData<ChildT, LOG2DIM> layout for Float (Upper LOG2DIM=5)
 // 0..24    mBBox
@@ -147,16 +149,14 @@ const ROOT_TILE_SIZE: usize = 32;
 // pad to 32-byte alignment
 // mTable[(1<<3*LOG2DIM)]  -- each entry is 8 bytes (union of f32 and i64)
 
-fn internal_header_size(log2dim: i32) -> usize {
+const UPPER_HEADER_SIZE: usize = internal_header_size_const(UPPER_LOG2DIM);
+const LOWER_HEADER_SIZE: usize = internal_header_size_const(LOWER_LOG2DIM);
+
+const fn internal_header_size_const(log2dim: i32) -> usize {
     let n = 1usize << (3 * log2dim as usize);
     let mask_bytes = n / 8;
-    let pre = 24 + 8 + mask_bytes * 2 + 16; // bbox+flags+valuemask+childmask+(min/max/avg/std)
-                                            // round up to NANOVDB_DATA_ALIGNMENT (32)
+    let pre = 24 + 8 + mask_bytes * 2 + 16;
     (pre + 31) & !31
-}
-
-fn mask_size_bytes(log2dim: i32) -> usize {
-    (1usize << (3 * log2dim as usize)) / 8
 }
 
 // ---- LeafData<Float, ..., LOG2DIM=3> layout ------------------------
@@ -347,15 +347,13 @@ impl<'a> ReadAccessor<'a> {
 
     fn read_upper_and_cache(&mut self, upper_abs: usize, ijk: [i32; 3]) -> f32 {
         let off = upper_offset(ijk);
-        let m_size = mask_size_bytes(UPPER_LOG2DIM);
-        let header_size = internal_header_size(UPPER_LOG2DIM);
         let value_mask_off = upper_abs + 24 + 8;
-        let child_mask_off = value_mask_off + m_size;
-        let table_off = upper_abs + header_size;
+        let child_mask_off = value_mask_off + UPPER_MASK_SIZE;
+        let table_off = upper_abs + UPPER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
 
         if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + m_size],
+            &self.grid_bytes[child_mask_off..child_mask_off + UPPER_MASK_SIZE],
             off,
         ) {
             // child slot -> lower internal node
@@ -379,15 +377,13 @@ impl<'a> ReadAccessor<'a> {
 
     fn read_lower_and_cache(&mut self, lower_abs: usize, ijk: [i32; 3]) -> f32 {
         let off = lower_offset(ijk);
-        let m_size = mask_size_bytes(LOWER_LOG2DIM);
-        let header_size = internal_header_size(LOWER_LOG2DIM);
         let value_mask_off = lower_abs + 24 + 8;
-        let child_mask_off = value_mask_off + m_size;
-        let table_off = lower_abs + header_size;
+        let child_mask_off = value_mask_off + LOWER_MASK_SIZE;
+        let table_off = lower_abs + LOWER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
 
         if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + m_size],
+            &self.grid_bytes[child_mask_off..child_mask_off + LOWER_MASK_SIZE],
             off,
         ) {
             let child_byte_off = i64::from_le_bytes(
@@ -526,14 +522,12 @@ impl<'a> ReadAccessor<'a> {
 
     fn is_active_upper_and_cache(&mut self, upper_abs: usize, ijk: [i32; 3]) -> bool {
         let off = upper_offset(ijk);
-        let m_size = mask_size_bytes(UPPER_LOG2DIM);
-        let header_size = internal_header_size(UPPER_LOG2DIM);
         let value_mask_off = upper_abs + 24 + 8;
-        let child_mask_off = value_mask_off + m_size;
-        let table_off = upper_abs + header_size;
+        let child_mask_off = value_mask_off + UPPER_MASK_SIZE;
+        let table_off = upper_abs + UPPER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
         if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + m_size],
+            &self.grid_bytes[child_mask_off..child_mask_off + UPPER_MASK_SIZE],
             off,
         ) {
             let child_byte_off = i64::from_le_bytes(
@@ -546,7 +540,7 @@ impl<'a> ReadAccessor<'a> {
             self.is_active_lower_and_cache(lower_abs, ijk)
         } else {
             mask_is_on(
-                &self.grid_bytes[value_mask_off..value_mask_off + m_size],
+                &self.grid_bytes[value_mask_off..value_mask_off + UPPER_MASK_SIZE],
                 off,
             )
         }
@@ -554,14 +548,12 @@ impl<'a> ReadAccessor<'a> {
 
     fn is_active_lower_and_cache(&mut self, lower_abs: usize, ijk: [i32; 3]) -> bool {
         let off = lower_offset(ijk);
-        let m_size = mask_size_bytes(LOWER_LOG2DIM);
-        let header_size = internal_header_size(LOWER_LOG2DIM);
         let value_mask_off = lower_abs + 24 + 8;
-        let child_mask_off = value_mask_off + m_size;
-        let table_off = lower_abs + header_size;
+        let child_mask_off = value_mask_off + LOWER_MASK_SIZE;
+        let table_off = lower_abs + LOWER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
         if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + m_size],
+            &self.grid_bytes[child_mask_off..child_mask_off + LOWER_MASK_SIZE],
             off,
         ) {
             let child_byte_off = i64::from_le_bytes(
@@ -574,7 +566,7 @@ impl<'a> ReadAccessor<'a> {
             self.is_active_leaf(leaf_abs, ijk)
         } else {
             mask_is_on(
-                &self.grid_bytes[value_mask_off..value_mask_off + m_size],
+                &self.grid_bytes[value_mask_off..value_mask_off + LOWER_MASK_SIZE],
                 off,
             )
         }
