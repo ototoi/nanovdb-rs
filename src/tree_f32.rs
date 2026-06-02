@@ -22,9 +22,6 @@ const LEAF_MASK: i32 = (1 << LEAF_LOG2DIM) - 1; // 7
 const LOWER_MASK: i32 = (1 << LOWER_LOG2DIM) - 1; // 15
 const UPPER_MASK: i32 = (1 << UPPER_LOG2DIM) - 1; // 31
 
-/// Offset of the root inside the grid's bytes. v4 `TreeData::mNodeOffset[3]`.
-pub const TREE_DATA_OFFSET_IN_GRID: usize = GRID_DATA_SIZE;
-
 /// Byte offsets to each tree level inside a grid's bytes. Cheap to
 /// compute (just 4 `u64` reads) and `Copy`, so it can be cached and
 /// passed by value to repeated [`FloatAccessor::with_tree`] calls.
@@ -154,13 +151,9 @@ const LEAF_VALUES_OFF: usize = 96;
 /// grid bytes (decompressed) and the parsed tree offsets.
 pub struct FloatAccessor<'a> {
     grid_bytes: &'a [u8],
-    /// File offsets are recorded relative to `TreeData`, which itself
-    /// sits at the start of the grid bytes right after `GridData`. We
-    /// cache the absolute offset of TreeData to keep the conversions
-    /// trivial.
-    tree_data_offset: usize,
-    tree: TreeOffsets,
     background: f32,
+    root_abs: usize,
+    root_table_size: u32,
 }
 
 impl<'a> FloatAccessor<'a> {
@@ -177,11 +170,13 @@ impl<'a> FloatAccessor<'a> {
         let root_abs = tree_data_offset + tree.root_offset as usize;
         let background =
             f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
+        let root_table_size =
+            u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
         Some(FloatAccessor {
             grid_bytes: bytes,
-            tree_data_offset,
-            tree,
             background,
+            root_abs,
+            root_table_size,
         })
     }
 
@@ -223,11 +218,14 @@ impl<'a> FloatAccessor<'a> {
     /// were used to compute `tree`/`background`. The accessor blindly
     /// trusts the offsets.
     pub fn with_tree(bytes: &'a [u8], tree: TreeOffsets, background: f32) -> Self {
+        let root_abs = GRID_DATA_SIZE + tree.root_offset as usize;
+        let root_table_size =
+            u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
         FloatAccessor {
             grid_bytes: bytes,
-            tree_data_offset: GRID_DATA_SIZE,
-            tree,
             background,
+            root_abs,
+            root_table_size,
         }
     }
 
@@ -239,20 +237,13 @@ impl<'a> FloatAccessor<'a> {
     /// Random-access voxel lookup. Returns `background` for inactive /
     /// missing voxels, matching v4's `Tree::getValue(ijk)` behaviour.
     pub fn value_at_index(&self, ijk: [i32; 3]) -> f32 {
-        let root_abs = self.tree_data_offset + self.tree.root_offset as usize;
-        let table_size = u32::from_le_bytes(
-            self.grid_bytes[root_abs + 24..root_abs + 28]
-                .try_into()
-                .unwrap(),
-        );
-
         // Search root tiles for one whose key matches the high bits of ijk.
         let key = coord_to_root_key(ijk);
-        let tiles_off = root_abs + ROOT_HEADER_SIZE;
+        let tiles_off = self.root_abs + ROOT_HEADER_SIZE;
         // Tiles are stored unsorted (small N typically), so a linear
         // probe is fine and matches v4's `findTile` behaviour.
         let mut tile_match: Option<usize> = None;
-        for n in 0..table_size as usize {
+        for n in 0..self.root_table_size as usize {
             let tile_off = tiles_off + n * ROOT_TILE_SIZE;
             let tkey =
                 u64::from_le_bytes(self.grid_bytes[tile_off..tile_off + 8].try_into().unwrap());
@@ -278,7 +269,7 @@ impl<'a> FloatAccessor<'a> {
                     .unwrap(),
             );
         }
-        let upper_abs = (root_abs as i64 + child) as usize;
+        let upper_abs = (self.root_abs as i64 + child) as usize;
         self.read_upper(upper_abs, ijk)
     }
 
@@ -412,16 +403,10 @@ impl<'a> FloatAccessor<'a> {
         // active flag is on the slot itself (state field for root,
         // value mask for internal). For simplicity we just check the
         // leaf path; tiled-active values report as false here.
-        let root_abs = self.tree_data_offset + self.tree.root_offset as usize;
-        let table_size = u32::from_le_bytes(
-            self.grid_bytes[root_abs + 24..root_abs + 28]
-                .try_into()
-                .unwrap(),
-        );
         let key = coord_to_root_key(ijk);
-        let tiles_off = root_abs + ROOT_HEADER_SIZE;
+        let tiles_off = self.root_abs + ROOT_HEADER_SIZE;
         let mut tile_match: Option<usize> = None;
-        for n in 0..table_size as usize {
+        for n in 0..self.root_table_size as usize {
             let tile_off = tiles_off + n * ROOT_TILE_SIZE;
             let tkey =
                 u64::from_le_bytes(self.grid_bytes[tile_off..tile_off + 8].try_into().unwrap());
@@ -446,7 +431,7 @@ impl<'a> FloatAccessor<'a> {
             );
             return state != 0;
         }
-        let upper_abs = (root_abs as i64 + child) as usize;
+        let upper_abs = (self.root_abs as i64 + child) as usize;
         self.is_active_upper(upper_abs, ijk)
     }
 
