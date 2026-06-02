@@ -21,6 +21,9 @@ const UPPER_TOTAL: i32 = LOWER_TOTAL + UPPER_LOG2DIM; // 12
 const LEAF_MASK: i32 = (1 << LEAF_LOG2DIM) - 1; // 7
 const LOWER_MASK: i32 = (1 << LOWER_LOG2DIM) - 1; // 15
 const UPPER_MASK: i32 = (1 << UPPER_LOG2DIM) - 1; // 31
+const READ_ACCESSOR_LEAF_MASK: i32 = (1 << LEAF_TOTAL) - 1;
+const READ_ACCESSOR_LOWER_MASK: i32 = (1 << LOWER_TOTAL) - 1;
+const READ_ACCESSOR_UPPER_MASK: i32 = (1 << UPPER_TOTAL) - 1;
 
 /// Parsed `nanovdb::TreeData` header fields used by the tree walker.
 /// Cheap to compute and `Copy`, so it can be cached and passed by value
@@ -169,13 +172,18 @@ fn mask_size_bytes(log2dim: i32) -> usize {
 const LEAF_VALUE_MASK_OFF: usize = 16;
 const LEAF_VALUES_OFF: usize = 96;
 
-/// Random-access accessor over the Float tree. Holds a reference to the
-/// grid bytes (decompressed) and the parsed tree offsets.
+/// Random-access accessor over the Float tree.
+///
+/// The public concept follows `nanovdb::ReadAccessor`; the internal cache
+/// layout follows `cnanovdb_readaccessor`: last key plus cached
+/// Leaf/Lower/Upper/Root node offsets.
 pub struct ReadAccessor<'a> {
     grid_bytes: &'a [u8],
     background: f32,
     root_abs: usize,
     root_table_size: u32,
+    key: [i32; 3],
+    node: [usize; 4],
 }
 
 impl<'a> ReadAccessor<'a> {
@@ -199,6 +207,8 @@ impl<'a> ReadAccessor<'a> {
             background,
             root_abs,
             root_table_size,
+            key: [0; 3],
+            node: [0, 0, 0, root_abs],
         })
     }
 
@@ -248,6 +258,8 @@ impl<'a> ReadAccessor<'a> {
             background,
             root_abs,
             root_table_size,
+            key: [0; 3],
+            node: [0, 0, 0, root_abs],
         }
     }
 
@@ -256,9 +268,46 @@ impl<'a> ReadAccessor<'a> {
         self.background
     }
 
+    fn insert(&mut self, child_level: usize, node_abs: usize, ijk: [i32; 3]) {
+        self.node[child_level] = node_abs;
+        self.key = ijk;
+    }
+
+    fn compute_dirty(&self, ijk: [i32; 3]) -> i32 {
+        (ijk[0] ^ self.key[0]) | (ijk[1] ^ self.key[1]) | (ijk[2] ^ self.key[2])
+    }
+
+    fn is_cached(&mut self, level: usize, dirty: i32, mask: i32) -> bool {
+        if self.node[level] == 0 {
+            return false;
+        }
+        if dirty & !mask != 0 {
+            self.node[level] = 0;
+            return false;
+        }
+        true
+    }
+
     /// Random-access voxel lookup. Returns `background` for inactive /
     /// missing voxels, matching v4's `Tree::getValue(ijk)` behaviour.
-    pub fn get_value(&self, ijk: [i32; 3]) -> f32 {
+    ///
+    /// This updates the `ReadAccessor` cache, mirroring
+    /// `cnanovdb_readaccessor_getValueF`.
+    pub fn get_value(&mut self, ijk: [i32; 3]) -> f32 {
+        let dirty = self.compute_dirty(ijk);
+        if self.is_cached(0, dirty, READ_ACCESSOR_LEAF_MASK) {
+            return self.read_leaf(self.node[0], ijk);
+        }
+        if self.is_cached(1, dirty, READ_ACCESSOR_LOWER_MASK) {
+            return self.read_lower_and_cache(self.node[1], ijk);
+        }
+        if self.is_cached(2, dirty, READ_ACCESSOR_UPPER_MASK) {
+            return self.read_upper_and_cache(self.node[2], ijk);
+        }
+        self.read_root_and_cache(ijk)
+    }
+
+    fn read_root_and_cache(&mut self, ijk: [i32; 3]) -> f32 {
         // Search root tiles for one whose key matches the high bits of ijk.
         let key = coord_to_root_key(ijk);
         let tiles_off = self.root_abs + ROOT_HEADER_SIZE;
@@ -292,10 +341,11 @@ impl<'a> ReadAccessor<'a> {
             );
         }
         let upper_abs = (self.root_abs as i64 + child) as usize;
-        self.read_upper(upper_abs, ijk)
+        self.insert(2, upper_abs, ijk);
+        self.read_upper_and_cache(upper_abs, ijk)
     }
 
-    fn read_upper(&self, upper_abs: usize, ijk: [i32; 3]) -> f32 {
+    fn read_upper_and_cache(&mut self, upper_abs: usize, ijk: [i32; 3]) -> f32 {
         let off = upper_offset(ijk);
         let m_size = mask_size_bytes(UPPER_LOG2DIM);
         let header_size = internal_header_size(UPPER_LOG2DIM);
@@ -315,7 +365,8 @@ impl<'a> ReadAccessor<'a> {
                     .unwrap(),
             );
             let lower_abs = (upper_abs as i64 + child_byte_off) as usize;
-            self.read_lower(lower_abs, ijk)
+            self.insert(1, lower_abs, ijk);
+            self.read_lower_and_cache(lower_abs, ijk)
         } else {
             // tile value (active or inactive both stored as f32)
             f32::from_le_bytes(
@@ -326,7 +377,7 @@ impl<'a> ReadAccessor<'a> {
         }
     }
 
-    fn read_lower(&self, lower_abs: usize, ijk: [i32; 3]) -> f32 {
+    fn read_lower_and_cache(&mut self, lower_abs: usize, ijk: [i32; 3]) -> f32 {
         let off = lower_offset(ijk);
         let m_size = mask_size_bytes(LOWER_LOG2DIM);
         let header_size = internal_header_size(LOWER_LOG2DIM);
@@ -345,6 +396,7 @@ impl<'a> ReadAccessor<'a> {
                     .unwrap(),
             );
             let leaf_abs = (lower_abs as i64 + child_byte_off) as usize;
+            self.insert(0, leaf_abs, ijk);
             self.read_leaf(leaf_abs, ijk)
         } else {
             f32::from_le_bytes(
@@ -379,7 +431,7 @@ impl<'a> ReadAccessor<'a> {
     /// usage in v4's `nanovdb::createSampler` for `Float` grids.
     ///
     /// Returns `background` outside the data.
-    pub fn sample_trilinear(&self, idx: [f64; 3]) -> f32 {
+    pub fn sample_trilinear(&mut self, idx: [f64; 3]) -> f32 {
         let fx = idx[0].floor() as i32;
         let fy = idx[1].floor() as i32;
         let fz = idx[2].floor() as i32;
@@ -420,7 +472,21 @@ impl<'a> ReadAccessor<'a> {
 
     /// True if `(i, j, k)` is in the value mask of its leaf, matching
     /// v4 `Tree::isActive`.
-    pub fn is_active(&self, ijk: [i32; 3]) -> bool {
+    pub fn is_active(&mut self, ijk: [i32; 3]) -> bool {
+        let dirty = self.compute_dirty(ijk);
+        if self.is_cached(0, dirty, READ_ACCESSOR_LEAF_MASK) {
+            return self.is_active_leaf(self.node[0], ijk);
+        }
+        if self.is_cached(1, dirty, READ_ACCESSOR_LOWER_MASK) {
+            return self.is_active_lower_and_cache(self.node[1], ijk);
+        }
+        if self.is_cached(2, dirty, READ_ACCESSOR_UPPER_MASK) {
+            return self.is_active_upper_and_cache(self.node[2], ijk);
+        }
+        self.is_active_root_and_cache(ijk)
+    }
+
+    fn is_active_root_and_cache(&mut self, ijk: [i32; 3]) -> bool {
         // Walk root -> upper -> lower -> leaf; on tile slots, the
         // active flag is on the slot itself (state field for root,
         // value mask for internal). For simplicity we just check the
@@ -454,10 +520,11 @@ impl<'a> ReadAccessor<'a> {
             return state != 0;
         }
         let upper_abs = (self.root_abs as i64 + child) as usize;
-        self.is_active_upper(upper_abs, ijk)
+        self.insert(2, upper_abs, ijk);
+        self.is_active_upper_and_cache(upper_abs, ijk)
     }
 
-    fn is_active_upper(&self, upper_abs: usize, ijk: [i32; 3]) -> bool {
+    fn is_active_upper_and_cache(&mut self, upper_abs: usize, ijk: [i32; 3]) -> bool {
         let off = upper_offset(ijk);
         let m_size = mask_size_bytes(UPPER_LOG2DIM);
         let header_size = internal_header_size(UPPER_LOG2DIM);
@@ -475,7 +542,8 @@ impl<'a> ReadAccessor<'a> {
                     .unwrap(),
             );
             let lower_abs = (upper_abs as i64 + child_byte_off) as usize;
-            self.is_active_lower(lower_abs, ijk)
+            self.insert(1, lower_abs, ijk);
+            self.is_active_lower_and_cache(lower_abs, ijk)
         } else {
             mask_is_on(
                 &self.grid_bytes[value_mask_off..value_mask_off + m_size],
@@ -484,7 +552,7 @@ impl<'a> ReadAccessor<'a> {
         }
     }
 
-    fn is_active_lower(&self, lower_abs: usize, ijk: [i32; 3]) -> bool {
+    fn is_active_lower_and_cache(&mut self, lower_abs: usize, ijk: [i32; 3]) -> bool {
         let off = lower_offset(ijk);
         let m_size = mask_size_bytes(LOWER_LOG2DIM);
         let header_size = internal_header_size(LOWER_LOG2DIM);
@@ -502,16 +570,21 @@ impl<'a> ReadAccessor<'a> {
                     .unwrap(),
             );
             let leaf_abs = (lower_abs as i64 + child_byte_off) as usize;
-            let value_mask_off = leaf_abs + LEAF_VALUE_MASK_OFF;
-            mask_is_on(
-                &self.grid_bytes[value_mask_off..value_mask_off + 64],
-                leaf_offset(ijk),
-            )
+            self.insert(0, leaf_abs, ijk);
+            self.is_active_leaf(leaf_abs, ijk)
         } else {
             mask_is_on(
                 &self.grid_bytes[value_mask_off..value_mask_off + m_size],
                 off,
             )
         }
+    }
+
+    fn is_active_leaf(&self, leaf_abs: usize, ijk: [i32; 3]) -> bool {
+        let value_mask_off = leaf_abs + LEAF_VALUE_MASK_OFF;
+        mask_is_on(
+            &self.grid_bytes[value_mask_off..value_mask_off + 64],
+            leaf_offset(ijk),
+        )
     }
 }

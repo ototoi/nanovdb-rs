@@ -282,7 +282,7 @@ mod tests {
         };
         let file = NvdbFile::open(&path).expect("open bunny_cloud");
         let grid = &file.grids()[0];
-        let accessor = grid.float_read_accessor().expect("float accessor");
+        let mut accessor = grid.float_read_accessor().expect("float accessor");
         let (bbox_min, bbox_max) = grid.index_bbox();
         let bg = accessor.background();
 
