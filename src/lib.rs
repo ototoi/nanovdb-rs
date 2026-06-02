@@ -24,7 +24,7 @@
 //!         grid.value_type(),
 //!         grid.voxel_count()
 //!     );
-//!     if let Some(acc) = grid.float_accessor() {
+//!     if let Some(acc) = grid.float_read_accessor() {
 //!         let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
 //!         let v = acc.sample_trilinear([idx.x, idx.y, idx.z]);
 //!         println!("  sample at world (0,0,0): {}", v);
@@ -58,6 +58,6 @@ pub use file::{Grid, NvdbFile};
 pub use grid_data::{GridDataHeader, Map, GRID_DATA_SIZE, MAP_SIZE};
 pub use header::{Codec, SegmentHeader, Version};
 pub use metadata::GridMetadata;
-pub use tree_f32::{FloatAccessor, TreeOffsets};
-pub use tree_vec3f::{Vec3f, Vec3fAccessor};
+pub use tree_f32::{ReadAccessor, TreeData};
+pub use tree_vec3f::Vec3f;
 pub use types::{GridClass, GridType, Vec3d};

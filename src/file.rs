@@ -186,8 +186,8 @@ impl Grid {
 
     /// Raw grid bytes (`metadata.grid_size` long; decompressed for ZIP).
     /// Callers can reinterpret these as a `nanovdb::NanoGrid<T>` struct
-    /// or use the higher-level `float_accessor` / `world_to_index` /
-    /// `value_at_index` helpers on this `Grid`.
+    /// or use the higher-level `float_read_accessor` / `world_to_index` /
+    /// `get_value` helpers on this `Grid`.
     pub fn raw_bytes(&self) -> &[u8] {
         match &self.bytes {
             GridBytes::Mmap { mmap, offset, len } => {
@@ -208,16 +208,8 @@ impl Grid {
 
     /// Random-access accessor for `Float` grids. Returns `None` for
     /// non-float grid types; callers can match on `value_type()` first.
-    pub fn float_accessor(&self) -> Option<crate::tree_f32::FloatAccessor<'_>> {
-        crate::tree_f32::FloatAccessor::from_grid_bytes(self.raw_bytes())
-    }
-
-    /// Random-access accessor for `Vec3f` grids. Currently a stub —
-    /// returns `Some(...)` for the matching grid type but lookups
-    /// return `Vec3f::ZERO`. See `tree_vec3f.rs` for the follow-up
-    /// notes; consumers can prepare call sites today.
-    pub fn vec3f_accessor(&self) -> Option<crate::tree_vec3f::Vec3fAccessor<'_>> {
-        crate::tree_vec3f::Vec3fAccessor::from_grid_bytes(self.raw_bytes())
+    pub fn float_read_accessor(&self) -> Option<crate::tree_f32::ReadAccessor<'_>> {
+        crate::tree_f32::ReadAccessor::from_grid_bytes(self.raw_bytes())
     }
 
     /// World-space point -> index-space (voxel) coordinate via the
@@ -283,20 +275,19 @@ mod tests {
     }
 
     #[test]
-    fn float_accessor_bunny_cloud() {
+    fn float_read_accessor_bunny_cloud() {
         let Some(path) = fixture("bunny_cloud.nvdb") else {
             eprintln!("bunny_cloud.nvdb not present; skipping");
             return;
         };
         let file = NvdbFile::open(&path).expect("open bunny_cloud");
         let grid = &file.grids()[0];
-        let accessor = grid.float_accessor().expect("float accessor");
+        let accessor = grid.float_read_accessor().expect("float accessor");
         let (bbox_min, bbox_max) = grid.index_bbox();
         let bg = accessor.background();
 
         // Voxels outside the bbox should report the background value.
-        let outside =
-            accessor.value_at_index([bbox_min[0] - 10, bbox_min[1] - 10, bbox_min[2] - 10]);
+        let outside = accessor.get_value([bbox_min[0] - 10, bbox_min[1] - 10, bbox_min[2] - 10]);
         assert_eq!(outside, bg);
 
         // Voxels strictly inside the bbox should be readable -- many
@@ -312,7 +303,7 @@ mod tests {
         for di in -8..=8 {
             for dj in -8..=8 {
                 for dk in -8..=8 {
-                    let v = accessor.value_at_index([mid[0] + di, mid[1] + dj, mid[2] + dk]);
+                    let v = accessor.get_value([mid[0] + di, mid[1] + dj, mid[2] + dk]);
                     if (v - bg).abs() > 1e-6 {
                         non_bg += 1;
                     }
@@ -344,7 +335,7 @@ mod tests {
 
         // Trilinear sampling at integer coordinates should agree with
         // the integer accessor (within FP epsilon).
-        let v_int = accessor.value_at_index(mid);
+        let v_int = accessor.get_value(mid);
         let v_tri = accessor.sample_trilinear([mid[0] as f64, mid[1] as f64, mid[2] as f64]);
         assert!(
             (v_int - v_tri).abs() <= 1e-5,

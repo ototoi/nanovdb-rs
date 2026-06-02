@@ -1,7 +1,7 @@
 //! Float-valued NanoVDB tree walker (`NanoGrid<float>`).
 //!
 //! Mirrors `nanovdb::Tree<RootNode<InternalNode<InternalNode<LeafNode<float>>>>>`
-//! at the byte level so a single `value_at_index((i, j, k))` call walks
+//! at the byte level so a single `get_value((i, j, k))` call walks
 //! Root -> Upper(32^3) -> Lower(16^3) -> Leaf(8^3) and returns either
 //! the active voxel value or the inherited "tile" / background value.
 //!
@@ -22,18 +22,23 @@ const LEAF_MASK: i32 = (1 << LEAF_LOG2DIM) - 1; // 7
 const LOWER_MASK: i32 = (1 << LOWER_LOG2DIM) - 1; // 15
 const UPPER_MASK: i32 = (1 << UPPER_LOG2DIM) - 1; // 31
 
-/// Byte offsets to each tree level inside a grid's bytes. Cheap to
-/// compute (just 4 `u64` reads) and `Copy`, so it can be cached and
-/// passed by value to repeated [`FloatAccessor::with_tree`] calls.
+/// Parsed `nanovdb::TreeData` header fields used by the tree walker.
+/// Cheap to compute and `Copy`, so it can be cached and passed by value
+/// to repeated [`ReadAccessor::with_tree_data`]
+/// calls.
 #[derive(Debug, Clone, Copy)]
-pub struct TreeOffsets {
-    pub leaf_offset: u64,
-    pub lower_offset: u64,
-    pub upper_offset: u64,
-    pub root_offset: u64,
+pub struct TreeData {
+    /// NanoVDB `TreeData::mNodeOffset`.
+    pub node_offset: [u64; 4],
+    /// NanoVDB `TreeData::mNodeCount`.
+    pub node_count: [u32; 3],
+    /// NanoVDB `TreeData::mTileCount`.
+    pub tile_count: [u32; 3],
+    /// NanoVDB `TreeData::mVoxelCount`.
+    pub voxel_count: u64,
 }
 
-impl TreeOffsets {
+impl TreeData {
     pub fn parse(bytes: &[u8]) -> Self {
         // TreeData layout (NanoVDB.h:2500):
         //   u64 mNodeOffset[4]  (0=leaf, 1=lower, 2=upper, 3=root)
@@ -41,12 +46,29 @@ impl TreeOffsets {
         //   u32 mTileCount[3]
         //   u64 mVoxelCount
         debug_assert!(bytes.len() >= 64);
-        TreeOffsets {
-            leaf_offset: u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
-            lower_offset: u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
-            upper_offset: u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-            root_offset: u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
+        TreeData {
+            node_offset: [
+                u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
+                u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
+                u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
+                u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
+            ],
+            node_count: [
+                u32::from_le_bytes(bytes[32..36].try_into().unwrap()),
+                u32::from_le_bytes(bytes[36..40].try_into().unwrap()),
+                u32::from_le_bytes(bytes[40..44].try_into().unwrap()),
+            ],
+            tile_count: [
+                u32::from_le_bytes(bytes[44..48].try_into().unwrap()),
+                u32::from_le_bytes(bytes[48..52].try_into().unwrap()),
+                u32::from_le_bytes(bytes[52..56].try_into().unwrap()),
+            ],
+            voxel_count: u64::from_le_bytes(bytes[56..64].try_into().unwrap()),
         }
+    }
+
+    pub fn root_offset(self) -> u64 {
+        self.node_offset[3]
     }
 }
 
@@ -149,14 +171,14 @@ const LEAF_VALUES_OFF: usize = 96;
 
 /// Random-access accessor over the Float tree. Holds a reference to the
 /// grid bytes (decompressed) and the parsed tree offsets.
-pub struct FloatAccessor<'a> {
+pub struct ReadAccessor<'a> {
     grid_bytes: &'a [u8],
     background: f32,
     root_abs: usize,
     root_table_size: u32,
 }
 
-impl<'a> FloatAccessor<'a> {
+impl<'a> ReadAccessor<'a> {
     pub fn from_grid_bytes(bytes: &'a [u8]) -> Option<Self> {
         let header = GridDataHeader::parse(bytes)?;
         // Only Float and FogVolume-ish FloatGrids are handled here.
@@ -165,14 +187,14 @@ impl<'a> FloatAccessor<'a> {
             return None;
         }
         let tree_data_offset = GRID_DATA_SIZE;
-        let tree = TreeOffsets::parse(&bytes[tree_data_offset..tree_data_offset + 64]);
+        let tree = TreeData::parse(&bytes[tree_data_offset..tree_data_offset + 64]);
         // background is RootData[28..32].
-        let root_abs = tree_data_offset + tree.root_offset as usize;
+        let root_abs = tree_data_offset + tree.root_offset() as usize;
         let background =
             f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
         let root_table_size =
             u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
-        Some(FloatAccessor {
+        Some(ReadAccessor {
             grid_bytes: bytes,
             background,
             root_abs,
@@ -180,16 +202,16 @@ impl<'a> FloatAccessor<'a> {
         })
     }
 
-    /// Parse just the bits the tree walker needs (`TreeOffsets` +
+    /// Parse just the bits the tree walker needs (`TreeData` +
     /// `background`) without going through the full `GridDataHeader`
     /// parse. Use this once at scene-build time and pair the result
-    /// with [`FloatAccessor::with_tree`] on the hot path to avoid the
+    /// with [`ReadAccessor::with_tree_data`] on the hot path to avoid the
     /// `String` allocation that `GridDataHeader::parse` does on every
     /// call.
     ///
     /// Returns `None` if the grid is not a `Float` grid or the bytes
     /// are too short to hold a valid header.
-    pub fn parse_offsets(bytes: &[u8]) -> Option<(TreeOffsets, f32)> {
+    pub fn parse_tree_data(bytes: &[u8]) -> Option<(TreeData, f32)> {
         if bytes.len() < GRID_DATA_SIZE + 64 {
             return None;
         }
@@ -199,8 +221,8 @@ impl<'a> FloatAccessor<'a> {
             return None;
         }
         let tree_data_offset = GRID_DATA_SIZE;
-        let tree = TreeOffsets::parse(&bytes[tree_data_offset..tree_data_offset + 64]);
-        let root_abs = tree_data_offset + tree.root_offset as usize;
+        let tree = TreeData::parse(&bytes[tree_data_offset..tree_data_offset + 64]);
+        let root_abs = tree_data_offset + tree.root_offset() as usize;
         if root_abs + 32 > bytes.len() {
             return None;
         }
@@ -209,19 +231,19 @@ impl<'a> FloatAccessor<'a> {
         Some((tree, background))
     }
 
-    /// Construct a `FloatAccessor` from precomputed `TreeOffsets` and
-    /// background value (see [`FloatAccessor::parse_offsets`]). This is
+    /// Construct a `ReadAccessor` from precomputed `TreeData` and
+    /// background value (see [`ReadAccessor::parse_tree_data`]). This is
     /// the cheap path: no header parse, no allocation. Suitable for use
     /// in inner loops that need to read voxels billions of times.
     ///
     /// Safety / correctness: `bytes` must be the same grid bytes that
     /// were used to compute `tree`/`background`. The accessor blindly
     /// trusts the offsets.
-    pub fn with_tree(bytes: &'a [u8], tree: TreeOffsets, background: f32) -> Self {
-        let root_abs = GRID_DATA_SIZE + tree.root_offset as usize;
+    pub fn with_tree_data(bytes: &'a [u8], tree: TreeData, background: f32) -> Self {
+        let root_abs = GRID_DATA_SIZE + tree.root_offset() as usize;
         let root_table_size =
             u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
-        FloatAccessor {
+        ReadAccessor {
             grid_bytes: bytes,
             background,
             root_abs,
@@ -236,7 +258,7 @@ impl<'a> FloatAccessor<'a> {
 
     /// Random-access voxel lookup. Returns `background` for inactive /
     /// missing voxels, matching v4's `Tree::getValue(ijk)` behaviour.
-    pub fn value_at_index(&self, ijk: [i32; 3]) -> f32 {
+    pub fn get_value(&self, ijk: [i32; 3]) -> f32 {
         // Search root tiles for one whose key matches the high bits of ijk.
         let key = coord_to_root_key(ijk);
         let tiles_off = self.root_abs + ROOT_HEADER_SIZE;
@@ -346,7 +368,7 @@ impl<'a> FloatAccessor<'a> {
             // as the background. We mirror v4 here: still return the
             // stored value (which is what `Tree::getValue` does --
             // active/inactive distinction is separate). Use
-            // `is_active_at_index` if you need it.
+            // `is_active` if you need it.
         }
         let val_off = leaf_abs + LEAF_VALUES_OFF + (off as usize) * 4;
         f32::from_le_bytes(self.grid_bytes[val_off..val_off + 4].try_into().unwrap())
@@ -368,28 +390,28 @@ impl<'a> FloatAccessor<'a> {
         let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
         let mut coord = [fx, fy, fz];
 
-        let vz = self.value_at_index(coord);
+        let vz = self.get_value(coord);
         coord[2] += 1;
-        let vz1 = self.value_at_index(coord);
+        let vz1 = self.get_value(coord);
         let vy = lerp(vz, vz1, tz);
 
         coord[1] += 1;
-        let vz1 = self.value_at_index(coord);
+        let vz1 = self.get_value(coord);
         coord[2] -= 1;
-        let vz = self.value_at_index(coord);
+        let vz = self.get_value(coord);
         let vy1 = lerp(vz, vz1, tz);
         let vx = lerp(vy, vy1, ty);
 
         coord[0] += 1;
-        let vz = self.value_at_index(coord);
+        let vz = self.get_value(coord);
         coord[2] += 1;
-        let vz1 = self.value_at_index(coord);
+        let vz1 = self.get_value(coord);
         let vy1 = lerp(vz, vz1, tz);
 
         coord[1] -= 1;
-        let vz1 = self.value_at_index(coord);
+        let vz1 = self.get_value(coord);
         coord[2] -= 1;
-        let vz = self.value_at_index(coord);
+        let vz = self.get_value(coord);
         let vy = lerp(vz, vz1, tz);
         let vx1 = lerp(vy, vy1, ty);
 
