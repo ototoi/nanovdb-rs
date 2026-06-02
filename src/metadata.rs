@@ -115,7 +115,10 @@ impl GridMetadata {
         // NanoVDB stores nameSize INCLUDING the null terminator. Strip it.
         let name_bytes = &bytes[META_FIXED_BYTES..name_end];
         let name = String::from_utf8_lossy(
-            &name_bytes[..name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len())],
+            &name_bytes[..name_bytes
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(name_bytes.len())],
         )
         .into_owned();
 

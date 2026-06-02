@@ -75,7 +75,8 @@ impl NvdbFile {
             cursor += SegmentHeader::BYTE_SIZE as u64;
 
             // Parse per-grid metadata for the segment.
-            let mut metadata_list: Vec<GridMetadata> = Vec::with_capacity(header.grid_count as usize);
+            let mut metadata_list: Vec<GridMetadata> =
+                Vec::with_capacity(header.grid_count as usize);
             for _ in 0..header.grid_count {
                 let meta_start = cursor as usize;
                 let (meta, consumed) = GridMetadata::parse(&bytes[meta_start..])?;
@@ -294,11 +295,8 @@ mod tests {
         let bg = accessor.background();
 
         // Voxels outside the bbox should report the background value.
-        let outside = accessor.value_at_index([
-            bbox_min[0] - 10,
-            bbox_min[1] - 10,
-            bbox_min[2] - 10,
-        ]);
+        let outside =
+            accessor.value_at_index([bbox_min[0] - 10, bbox_min[1] - 10, bbox_min[2] - 10]);
         assert_eq!(outside, bg);
 
         // Voxels strictly inside the bbox should be readable -- many
@@ -322,16 +320,25 @@ mod tests {
             }
         }
         eprintln!("non-background hits near center: {}/4913", non_bg);
-        assert!(non_bg > 0, "expected at least one non-background voxel near bbox centre");
+        assert!(
+            non_bg > 0,
+            "expected at least one non-background voxel near bbox centre"
+        );
 
         // World -> index round-trip via the grid map.
-        let mid_world = grid.index_to_world(crate::types::Vec3d::new(
-            mid[0] as f64,
-            mid[1] as f64,
-            mid[2] as f64,
-        )).unwrap();
+        let mid_world = grid
+            .index_to_world(crate::types::Vec3d::new(
+                mid[0] as f64,
+                mid[1] as f64,
+                mid[2] as f64,
+            ))
+            .unwrap();
         let mid_idx = grid.world_to_index(mid_world).unwrap();
-        for (a, b) in [(mid_idx.x, mid[0] as f64), (mid_idx.y, mid[1] as f64), (mid_idx.z, mid[2] as f64)] {
+        for (a, b) in [
+            (mid_idx.x, mid[0] as f64),
+            (mid_idx.y, mid[1] as f64),
+            (mid_idx.z, mid[2] as f64),
+        ] {
             assert!((a - b).abs() < 1e-6, "round-trip drift: {} vs {}", a, b);
         }
 
@@ -339,7 +346,14 @@ mod tests {
         // the integer accessor (within FP epsilon).
         let v_int = accessor.value_at_index(mid);
         let v_tri = accessor.sample_trilinear([mid[0] as f64, mid[1] as f64, mid[2] as f64]);
-        assert!((v_int - v_tri).abs() <= 1e-5, "trilinear({}, {}, {})={} vs int={}",
-            mid[0], mid[1], mid[2], v_tri, v_int);
+        assert!(
+            (v_int - v_tri).abs() <= 1e-5,
+            "trilinear({}, {}, {})={} vs int={}",
+            mid[0],
+            mid[1],
+            mid[2],
+            v_tri,
+            v_int
+        );
     }
 }
