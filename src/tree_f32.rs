@@ -110,12 +110,42 @@ fn leaf_offset(ijk: [i32; 3]) -> u32 {
     (i << (2 * LEAF_LOG2DIM)) | (j << LEAF_LOG2DIM) | k
 }
 
-#[inline]
-fn mask_is_on(mask_bytes: &[u8], offset: u32) -> bool {
+#[inline(always)]
+fn mask_is_on_at(bytes: &[u8], mask_offset: usize, offset: u32) -> bool {
     let word = (offset >> 6) as usize;
     let bit = offset & 63;
-    let w = u64::from_le_bytes(mask_bytes[word * 8..word * 8 + 8].try_into().unwrap());
+    let w = read_u64(bytes, mask_offset + word * 8);
     (w >> bit) & 1 != 0
+}
+
+#[inline(always)]
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    debug_assert!(offset + 4 <= bytes.len());
+    unsafe {
+        u32::from_le(std::ptr::read_unaligned(
+            bytes.as_ptr().add(offset) as *const u32
+        ))
+    }
+}
+
+#[inline(always)]
+fn read_u64(bytes: &[u8], offset: usize) -> u64 {
+    debug_assert!(offset + 8 <= bytes.len());
+    unsafe {
+        u64::from_le(std::ptr::read_unaligned(
+            bytes.as_ptr().add(offset) as *const u64
+        ))
+    }
+}
+
+#[inline(always)]
+fn read_i64(bytes: &[u8], offset: usize) -> i64 {
+    read_u64(bytes, offset) as i64
+}
+
+#[inline(always)]
+fn read_f32(bytes: &[u8], offset: usize) -> f32 {
+    f32::from_bits(read_u32(bytes, offset))
 }
 
 // ---- RootData<Float> layout ----------------------------------------
@@ -200,8 +230,7 @@ impl<'a> ReadAccessor<'a> {
         let root_abs = tree_data_offset + tree.root_offset() as usize;
         let background =
             f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
-        let root_table_size =
-            u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
+        let root_table_size = read_u32(bytes, root_abs + 24);
         Some(ReadAccessor {
             grid_bytes: bytes,
             background,
@@ -251,8 +280,7 @@ impl<'a> ReadAccessor<'a> {
     /// trusts the offsets.
     pub fn with_tree_data(bytes: &'a [u8], tree: TreeData, background: f32) -> Self {
         let root_abs = GRID_DATA_SIZE + tree.root_offset() as usize;
-        let root_table_size =
-            u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
+        let root_table_size = read_u32(bytes, root_abs + 24);
         ReadAccessor {
             grid_bytes: bytes,
             background,
@@ -316,8 +344,7 @@ impl<'a> ReadAccessor<'a> {
         let mut tile_match: Option<usize> = None;
         for n in 0..self.root_table_size as usize {
             let tile_off = tiles_off + n * ROOT_TILE_SIZE;
-            let tkey =
-                u64::from_le_bytes(self.grid_bytes[tile_off..tile_off + 8].try_into().unwrap());
+            let tkey = read_u64(self.grid_bytes, tile_off);
             if tkey == key {
                 tile_match = Some(tile_off);
                 break;
@@ -327,18 +354,10 @@ impl<'a> ReadAccessor<'a> {
             Some(off) => off,
             None => return self.background,
         };
-        let child = i64::from_le_bytes(
-            self.grid_bytes[tile_off + 8..tile_off + 16]
-                .try_into()
-                .unwrap(),
-        );
+        let child = read_i64(self.grid_bytes, tile_off + 8);
         if child == 0 {
             // No child -> use the tile's value.
-            return f32::from_le_bytes(
-                self.grid_bytes[tile_off + 20..tile_off + 24]
-                    .try_into()
-                    .unwrap(),
-            );
+            return read_f32(self.grid_bytes, tile_off + 20);
         }
         let upper_abs = (self.root_abs as i64 + child) as usize;
         self.insert(2, upper_abs, ijk);
@@ -352,26 +371,15 @@ impl<'a> ReadAccessor<'a> {
         let table_off = upper_abs + UPPER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
 
-        if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + UPPER_MASK_SIZE],
-            off,
-        ) {
+        if mask_is_on_at(self.grid_bytes, child_mask_off, off) {
             // child slot -> lower internal node
-            let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8]
-                    .try_into()
-                    .unwrap(),
-            );
+            let child_byte_off = read_i64(self.grid_bytes, entry_off);
             let lower_abs = (upper_abs as i64 + child_byte_off) as usize;
             self.insert(1, lower_abs, ijk);
             self.read_lower_and_cache(lower_abs, ijk)
         } else {
             // tile value (active or inactive both stored as f32)
-            f32::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 4]
-                    .try_into()
-                    .unwrap(),
-            )
+            read_f32(self.grid_bytes, entry_off)
         }
     }
 
@@ -382,35 +390,20 @@ impl<'a> ReadAccessor<'a> {
         let table_off = lower_abs + LOWER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
 
-        if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + LOWER_MASK_SIZE],
-            off,
-        ) {
-            let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8]
-                    .try_into()
-                    .unwrap(),
-            );
+        if mask_is_on_at(self.grid_bytes, child_mask_off, off) {
+            let child_byte_off = read_i64(self.grid_bytes, entry_off);
             let leaf_abs = (lower_abs as i64 + child_byte_off) as usize;
             self.insert(0, leaf_abs, ijk);
             self.read_leaf(leaf_abs, ijk)
         } else {
-            f32::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 4]
-                    .try_into()
-                    .unwrap(),
-            )
+            read_f32(self.grid_bytes, entry_off)
         }
     }
 
     fn read_leaf(&self, leaf_abs: usize, ijk: [i32; 3]) -> f32 {
         let off = leaf_offset(ijk);
-        let value_mask_size = 64;
         let value_mask_off = leaf_abs + LEAF_VALUE_MASK_OFF;
-        if !mask_is_on(
-            &self.grid_bytes[value_mask_off..value_mask_off + value_mask_size],
-            off,
-        ) {
+        if !mask_is_on_at(self.grid_bytes, value_mask_off, off) {
             // Inactive voxel inside a leaf -> the leaf stores the
             // value in `mValues[off]` but the v4 accessor treats it
             // as the background. We mirror v4 here: still return the
@@ -419,7 +412,7 @@ impl<'a> ReadAccessor<'a> {
             // `is_active` if you need it.
         }
         let val_off = leaf_abs + LEAF_VALUES_OFF + (off as usize) * 4;
-        f32::from_le_bytes(self.grid_bytes[val_off..val_off + 4].try_into().unwrap())
+        read_f32(self.grid_bytes, val_off)
     }
 
     /// Trilinear-interpolated sample at a (possibly fractional)
@@ -492,8 +485,7 @@ impl<'a> ReadAccessor<'a> {
         let mut tile_match: Option<usize> = None;
         for n in 0..self.root_table_size as usize {
             let tile_off = tiles_off + n * ROOT_TILE_SIZE;
-            let tkey =
-                u64::from_le_bytes(self.grid_bytes[tile_off..tile_off + 8].try_into().unwrap());
+            let tkey = read_u64(self.grid_bytes, tile_off);
             if tkey == key {
                 tile_match = Some(tile_off);
                 break;
@@ -502,17 +494,9 @@ impl<'a> ReadAccessor<'a> {
         let Some(tile_off) = tile_match else {
             return false;
         };
-        let child = i64::from_le_bytes(
-            self.grid_bytes[tile_off + 8..tile_off + 16]
-                .try_into()
-                .unwrap(),
-        );
+        let child = read_i64(self.grid_bytes, tile_off + 8);
         if child == 0 {
-            let state = u32::from_le_bytes(
-                self.grid_bytes[tile_off + 16..tile_off + 20]
-                    .try_into()
-                    .unwrap(),
-            );
+            let state = read_u32(self.grid_bytes, tile_off + 16);
             return state != 0;
         }
         let upper_abs = (self.root_abs as i64 + child) as usize;
@@ -526,23 +510,13 @@ impl<'a> ReadAccessor<'a> {
         let child_mask_off = value_mask_off + UPPER_MASK_SIZE;
         let table_off = upper_abs + UPPER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
-        if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + UPPER_MASK_SIZE],
-            off,
-        ) {
-            let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8]
-                    .try_into()
-                    .unwrap(),
-            );
+        if mask_is_on_at(self.grid_bytes, child_mask_off, off) {
+            let child_byte_off = read_i64(self.grid_bytes, entry_off);
             let lower_abs = (upper_abs as i64 + child_byte_off) as usize;
             self.insert(1, lower_abs, ijk);
             self.is_active_lower_and_cache(lower_abs, ijk)
         } else {
-            mask_is_on(
-                &self.grid_bytes[value_mask_off..value_mask_off + UPPER_MASK_SIZE],
-                off,
-            )
+            mask_is_on_at(self.grid_bytes, value_mask_off, off)
         }
     }
 
@@ -552,31 +526,18 @@ impl<'a> ReadAccessor<'a> {
         let child_mask_off = value_mask_off + LOWER_MASK_SIZE;
         let table_off = lower_abs + LOWER_HEADER_SIZE;
         let entry_off = table_off + (off as usize) * 8;
-        if mask_is_on(
-            &self.grid_bytes[child_mask_off..child_mask_off + LOWER_MASK_SIZE],
-            off,
-        ) {
-            let child_byte_off = i64::from_le_bytes(
-                self.grid_bytes[entry_off..entry_off + 8]
-                    .try_into()
-                    .unwrap(),
-            );
+        if mask_is_on_at(self.grid_bytes, child_mask_off, off) {
+            let child_byte_off = read_i64(self.grid_bytes, entry_off);
             let leaf_abs = (lower_abs as i64 + child_byte_off) as usize;
             self.insert(0, leaf_abs, ijk);
             self.is_active_leaf(leaf_abs, ijk)
         } else {
-            mask_is_on(
-                &self.grid_bytes[value_mask_off..value_mask_off + LOWER_MASK_SIZE],
-                off,
-            )
+            mask_is_on_at(self.grid_bytes, value_mask_off, off)
         }
     }
 
     fn is_active_leaf(&self, leaf_abs: usize, ijk: [i32; 3]) -> bool {
         let value_mask_off = leaf_abs + LEAF_VALUE_MASK_OFF;
-        mask_is_on(
-            &self.grid_bytes[value_mask_off..value_mask_off + 64],
-            leaf_offset(ijk),
-        )
+        mask_is_on_at(self.grid_bytes, value_mask_off, leaf_offset(ijk))
     }
 }
