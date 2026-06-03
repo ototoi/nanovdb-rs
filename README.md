@@ -43,18 +43,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             grid.metadata.index_bbox_min,
             grid.metadata.index_bbox_max,
         );
-        // Random-access a float grid via the (i, j, k) accessor.
+        // Random-access a float grid via a NanoVDB-style sampler.
         if let Some(mut acc) = grid.float_read_accessor() {
             let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
             println!(
                 "  background={} at world (0,0,0) -> idx ({:.3}, {:.3}, {:.3}), value={}",
                 acc.background(),
                 idx.x, idx.y, idx.z,
-                acc.get_value([
-                    idx.x.floor() as i32,
-                    idx.y.floor() as i32,
-                    idx.z.floor() as i32,
-                ]),
+                nanovdb_rs::create_sampler1(&mut acc).sample([idx.x, idx.y, idx.z]),
             );
         }
     }

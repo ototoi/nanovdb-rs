@@ -332,5 +332,21 @@ mod tests {
         ] {
             assert!((a - b).abs() < 1e-6, "round-trip drift: {} vs {}", a, b);
         }
+
+        let v_int = accessor.get_value(mid);
+        let v_sample = crate::create_sampler1(&mut accessor).sample([
+            mid[0] as f64,
+            mid[1] as f64,
+            mid[2] as f64,
+        ]);
+        assert!(
+            (v_int - v_sample).abs() <= 1e-5,
+            "SampleFromVoxels({}, {}, {})={} vs get_value={}",
+            mid[0],
+            mid[1],
+            mid[2],
+            v_sample,
+            v_int
+        );
     }
 }
