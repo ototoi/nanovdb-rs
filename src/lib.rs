@@ -4,8 +4,7 @@
 //! format](https://www.openvdb.org/documentation/doxygen/group__NanoVDB.html)
 //! to enumerate the grids in a `.nvdb` file, read their per-grid metadata
 //! (name, value type, world / index bounding box, voxel size), and run
-//! point lookups against `FloatGrid` voxel data with either nearest or
-//! trilinear interpolation.
+//! point lookups against `FloatGrid` voxel data.
 //!
 //! `Vec3f` accessor is currently a stub that recognises the grid type
 //! but does not yet walk the tree. `Double` accessor is planned for a
@@ -26,7 +25,11 @@
 //!     );
 //!     if let Some(mut acc) = grid.float_read_accessor() {
 //!         let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
-//!         let v = acc.sample_trilinear([idx.x, idx.y, idx.z]);
+//!         let v = acc.get_value([
+//!             idx.x.floor() as i32,
+//!             idx.y.floor() as i32,
+//!             idx.z.floor() as i32,
+//!         ]);
 //!         println!("  sample at world (0,0,0): {}", v);
 //!     }
 //! }

@@ -422,50 +422,6 @@ impl<'a> ReadAccessor<'a> {
         f32::from_le_bytes(self.grid_bytes[val_off..val_off + 4].try_into().unwrap())
     }
 
-    /// Trilinear-interpolated sample at a (possibly fractional)
-    /// index-space coordinate `idx`. Mirrors the `SampleFromVoxels<...,1>`
-    /// usage in v4's `nanovdb::createSampler` for `Float` grids.
-    ///
-    /// Returns `background` outside the data.
-    pub fn sample_trilinear(&mut self, idx: [f64; 3]) -> f32 {
-        let fx = idx[0].floor() as i32;
-        let fy = idx[1].floor() as i32;
-        let fz = idx[2].floor() as i32;
-        let tx = (idx[0] - fx as f64) as f32;
-        let ty = (idx[1] - fy as f64) as f32;
-        let tz = (idx[2] - fz as f64) as f32;
-
-        let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
-        let mut coord = [fx, fy, fz];
-
-        let vz = self.get_value(coord);
-        coord[2] += 1;
-        let vz1 = self.get_value(coord);
-        let vy = lerp(vz, vz1, tz);
-
-        coord[1] += 1;
-        let vz1 = self.get_value(coord);
-        coord[2] -= 1;
-        let vz = self.get_value(coord);
-        let vy1 = lerp(vz, vz1, tz);
-        let vx = lerp(vy, vy1, ty);
-
-        coord[0] += 1;
-        let vz = self.get_value(coord);
-        coord[2] += 1;
-        let vz1 = self.get_value(coord);
-        let vy1 = lerp(vz, vz1, tz);
-
-        coord[1] -= 1;
-        let vz1 = self.get_value(coord);
-        coord[2] -= 1;
-        let vz = self.get_value(coord);
-        let vy = lerp(vz, vz1, tz);
-        let vx1 = lerp(vy, vy1, ty);
-
-        lerp(vx, vx1, tx)
-    }
-
     /// True if `(i, j, k)` is in the value mask of its leaf, matching
     /// v4 `Tree::isActive`.
     pub fn is_active(&mut self, ijk: [i32; 3]) -> bool {
