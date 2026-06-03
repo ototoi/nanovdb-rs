@@ -4,7 +4,7 @@
 //! format](https://www.openvdb.org/documentation/doxygen/group__NanoVDB.html)
 //! to enumerate the grids in a `.nvdb` file, read their per-grid metadata
 //! (name, value type, world / index bounding box, voxel size), and run
-//! point lookups against `FloatGrid` voxel data.
+//! point lookups and trilinear sampling against `FloatGrid` voxel data.
 //!
 //! `Vec3f` accessor is currently a stub that recognises the grid type
 //! but does not yet walk the tree. `Double` accessor is planned for a
@@ -25,11 +25,7 @@
 //!     );
 //!     if let Some(mut acc) = grid.float_read_accessor() {
 //!         let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
-//!         let v = acc.get_value([
-//!             idx.x.floor() as i32,
-//!             idx.y.floor() as i32,
-//!             idx.z.floor() as i32,
-//!         ]);
+//!         let v = nanovdb_rs::create_sampler1(&mut acc).sample([idx.x, idx.y, idx.z]);
 //!         println!("  sample at world (0,0,0): {}", v);
 //!     }
 //! }
@@ -52,6 +48,7 @@ mod file;
 mod grid_data;
 mod header;
 mod metadata;
+mod sample_from_voxels;
 mod tree_f32;
 mod tree_vec3f;
 mod types;
@@ -61,6 +58,7 @@ pub use file::{Grid, NvdbFile};
 pub use grid_data::{GridDataHeader, Map, GRID_DATA_SIZE, MAP_SIZE};
 pub use header::{Codec, SegmentHeader, Version};
 pub use metadata::GridMetadata;
+pub use sample_from_voxels::{create_sampler1, SampleFromVoxels};
 pub use tree_f32::{ReadAccessor, TreeData};
 pub use tree_vec3f::Vec3f;
 pub use types::{GridClass, GridType, Vec3d};
