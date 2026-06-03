@@ -47,10 +47,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(mut acc) = grid.float_read_accessor() {
             let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
             println!(
-                "  background={} at world (0,0,0) -> idx ({:.3}, {:.3}, {:.3}), tri={}",
+                "  background={} at world (0,0,0) -> idx ({:.3}, {:.3}, {:.3}), value={}",
                 acc.background(),
                 idx.x, idx.y, idx.z,
-                acc.sample_trilinear([idx.x, idx.y, idx.z]),
+                acc.get_value([
+                    idx.x.floor() as i32,
+                    idx.y.floor() as i32,
+                    idx.z.floor() as i32,
+                ]),
             );
         }
     }

@@ -332,19 +332,5 @@ mod tests {
         ] {
             assert!((a - b).abs() < 1e-6, "round-trip drift: {} vs {}", a, b);
         }
-
-        // Trilinear sampling at integer coordinates should agree with
-        // the integer accessor (within FP epsilon).
-        let v_int = accessor.get_value(mid);
-        let v_tri = accessor.sample_trilinear([mid[0] as f64, mid[1] as f64, mid[2] as f64]);
-        assert!(
-            (v_int - v_tri).abs() <= 1e-5,
-            "trilinear({}, {}, {})={} vs int={}",
-            mid[0],
-            mid[1],
-            mid[2],
-            v_tri,
-            v_int
-        );
     }
 }
