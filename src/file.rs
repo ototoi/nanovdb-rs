@@ -173,6 +173,11 @@ impl Grid {
         self.metadata.grid_type
     }
 
+    /// Parsed per-grid metadata. Mirrors NanoVDB `GridHandle::gridMetaData()`.
+    pub fn grid_metadata(&self) -> &GridMetadata {
+        &self.metadata
+    }
+
     pub fn voxel_count(&self) -> u64 {
         self.metadata.voxel_count
     }
