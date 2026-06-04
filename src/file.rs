@@ -2,10 +2,9 @@
 //! segment header, parse the per-grid metadata for that segment, and
 //! present a `Grid` view onto the grid bytes that follow.
 //!
-//! Uncompressed segments expose their bytes zero-copy from the mmap;
-//! ZIP segments are decompressed into per-grid `Arc<Vec<u8>>` buffers.
-//! If all grids in the file are owned decompressed buffers, the mmap is
-//! dropped after parsing so the compressed file pages do not remain in RSS.
+//! Uncompressed segments expose their bytes zero-copy from the input mmap.
+//! ZIP segments are streamed into anonymous temporary files and memory
+//! mapped, avoiding a retained heap-sized decompression buffer.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -19,14 +18,13 @@ use crate::metadata::GridMetadata;
 /// A read-only memory-mapped view of an entire `.nvdb` file plus the
 /// parsed per-grid metadata.
 pub struct NvdbFile {
-    _mmap: Option<Arc<Mmap>>,
     file_size: usize,
     grids: Vec<Grid>,
 }
 
 /// A single grid inside a `.nvdb` file. Either references the mmap
-/// directly (uncompressed segments) or owns a decompressed copy of the
-/// grid bytes (ZIP segments).
+/// directly (uncompressed segments) or a mmap of a decompressed ZIP
+/// segment.
 pub struct Grid {
     /// Parsed `GridMetadata` for this grid.
     pub metadata: GridMetadata,
@@ -34,14 +32,12 @@ pub struct Grid {
 }
 
 pub(crate) enum GridBytes {
-    /// The grid lives in the mmap at [offset, offset + grid_size).
+    /// The grid lives in the mmap at [offset, offset + len).
     Mmap {
         mmap: Arc<Mmap>,
         offset: u64,
         len: u64,
     },
-    /// The grid was decompressed at load time into this buffer.
-    Owned(Arc<Vec<u8>>),
 }
 
 impl NvdbFile {
@@ -124,12 +120,16 @@ impl NvdbFile {
                                     actual: bytes.len() - comp_start,
                                 });
                             }
-                            let compressed = &bytes[comp_start..comp_end];
-                            let mut decoder = flate2::read::ZlibDecoder::new(compressed);
-                            let mut out = Vec::with_capacity(meta.grid_size as usize);
-                            std::io::copy(&mut decoder, &mut out)?;
+                            let grid_mmap = decompress_zip_grid_to_mmap(
+                                &bytes[comp_start..comp_end],
+                                meta.grid_size,
+                            )?;
                             cursor += compressed_size;
-                            GridBytes::Owned(Arc::new(out))
+                            GridBytes::Mmap {
+                                mmap: Arc::new(grid_mmap),
+                                offset: 0,
+                                len: meta.grid_size,
+                            }
                         }
                         #[cfg(not(feature = "zip"))]
                         {
@@ -146,11 +146,7 @@ impl NvdbFile {
                 });
             }
         }
-        let needs_mmap = grids
-            .iter()
-            .any(|grid| matches!(grid.bytes, GridBytes::Mmap { .. }));
         Ok(NvdbFile {
-            _mmap: needs_mmap.then_some(mmap),
             file_size: total as usize,
             grids,
         })
@@ -204,7 +200,6 @@ impl Grid {
                 let end = start + *len as usize;
                 &mmap[start..end]
             }
-            GridBytes::Owned(buf) => buf.as_slice(),
         }
     }
 
@@ -232,6 +227,22 @@ impl Grid {
     pub fn index_to_world(&self, idx: crate::types::Vec3d) -> Option<crate::types::Vec3d> {
         Some(self.header()?.map.apply_map(idx))
     }
+}
+
+#[cfg(feature = "zip")]
+fn decompress_zip_grid_to_mmap(compressed: &[u8], expected_size: u64) -> Result<Mmap, Error> {
+    let mut decoder = flate2::read::ZlibDecoder::new(compressed);
+    let mut file = tempfile::tempfile()?;
+    let actual = std::io::copy(&mut decoder, &mut file)?;
+    if actual != expected_size {
+        return Err(Error::BadDecompressedSize {
+            expected: expected_size,
+            actual,
+        });
+    }
+    // SAFETY: the mapping is read-only. The underlying anonymous temp
+    // file is no longer needed after the mapping is established.
+    Ok(unsafe { Mmap::map(&file) }?)
 }
 
 #[cfg(test)]
