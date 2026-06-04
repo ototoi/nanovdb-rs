@@ -20,6 +20,21 @@ impl<'a, 'b> SampleFromVoxels<'a, 'b> {
         let coord = floor_coord(&mut xyz);
 
         let lerp = |a: f32, b: f32, w: f64| a + (w as f32) * (b - a);
+        self.sample_with(coord, xyz, lerp)
+    }
+
+    pub fn sample_f32(&mut self, mut xyz: [f32; 3]) -> f32 {
+        let coord = floor_coord_f32(&mut xyz);
+
+        let lerp = |a: f32, b: f32, w: f32| a + w * (b - a);
+        self.sample_with(coord, xyz, lerp)
+    }
+
+    fn sample_with<T, F>(&mut self, coord: [i32; 3], xyz: [T; 3], lerp: F) -> f32
+    where
+        T: Copy,
+        F: Fn(f32, f32, T) -> f32,
+    {
         let mut coord = coord;
 
         let vz = self.acc.get_value(coord);
@@ -67,6 +82,16 @@ fn floor_coord(xyz: &mut [f64; 3]) -> [i32; 3] {
     [ix as i32, iy as i32, iz as i32]
 }
 
+fn floor_coord_f32(xyz: &mut [f32; 3]) -> [i32; 3] {
+    let ix = xyz[0].floor();
+    let iy = xyz[1].floor();
+    let iz = xyz[2].floor();
+    xyz[0] -= ix;
+    xyz[1] -= iy;
+    xyz[2] -= iz;
+    [ix as i32, iy as i32, iz as i32]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,6 +100,14 @@ mod tests {
     fn floor_coord_returns_integer_coord_and_fractional_xyz() {
         let mut xyz = [1.25, -2.75, 3.0];
         let coord = floor_coord(&mut xyz);
+        assert_eq!(coord, [1, -3, 3]);
+        assert_eq!(xyz, [0.25, 0.25, 0.0]);
+    }
+
+    #[test]
+    fn floor_coord_f32_returns_integer_coord_and_fractional_xyz() {
+        let mut xyz = [1.25, -2.75, 3.0];
+        let coord = floor_coord_f32(&mut xyz);
         assert_eq!(coord, [1, -3, 3]);
         assert_eq!(xyz, [0.25, 0.25, 0.0]);
     }
