@@ -48,6 +48,16 @@ pub struct GridMetadata {
 }
 
 impl GridMetadata {
+    /// Mirrors NanoVDB `GridMetaData::isFogVolume()`.
+    pub fn is_fog_volume(&self) -> bool {
+        self.grid_class == GridClass::FogVolume
+    }
+
+    /// Mirrors NanoVDB `GridMetaData::isUnknown()`.
+    pub fn is_unknown_class(&self) -> bool {
+        self.grid_class == GridClass::Unknown
+    }
+
     /// Parse `[bytes]` starting at offset 0; returns the parsed metadata
     /// and the number of bytes consumed (`META_FIXED_BYTES + nameSize`).
     pub fn parse(bytes: &[u8]) -> Result<(Self, usize), Error> {
@@ -165,4 +175,42 @@ fn read_u64(b: &[u8], o: usize) -> u64 {
 #[inline]
 fn read_f64(b: &[u8], o: usize) -> f64 {
     f64::from_le_bytes(b[o..o + 8].try_into().unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::header::{Codec, Version};
+
+    fn metadata_with_class(grid_class: GridClass) -> GridMetadata {
+        GridMetadata {
+            grid_size: 0,
+            file_size: 0,
+            name_key: 0,
+            voxel_count: 0,
+            grid_type: GridType::Float,
+            grid_class,
+            world_bbox_min: Vec3d::new(0.0, 0.0, 0.0),
+            world_bbox_max: Vec3d::new(0.0, 0.0, 0.0),
+            index_bbox_min: [0; 3],
+            index_bbox_max: [0; 3],
+            voxel_size: Vec3d::new(1.0, 1.0, 1.0),
+            node_count: [0; 4],
+            tile_count: [0; 3],
+            codec: Codec::None,
+            version: Version(0),
+            name: String::new(),
+        }
+    }
+
+    #[test]
+    fn grid_class_helpers_match_nanovdb_names() {
+        let fog = metadata_with_class(GridClass::FogVolume);
+        assert!(fog.is_fog_volume());
+        assert!(!fog.is_unknown_class());
+
+        let unknown = metadata_with_class(GridClass::Unknown);
+        assert!(!unknown.is_fog_volume());
+        assert!(unknown.is_unknown_class());
+    }
 }
