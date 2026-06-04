@@ -3,8 +3,9 @@
 //! present a `Grid` view onto the grid bytes that follow.
 //!
 //! Uncompressed segments expose their bytes zero-copy from the mmap;
-//! ZIP segments are decompressed into per-grid `Arc<Vec<u8>>` buffers
-//! (only on first access; the mmap is still used for the metadata).
+//! ZIP segments are decompressed into per-grid `Arc<Vec<u8>>` buffers.
+//! If all grids in the file are owned decompressed buffers, the mmap is
+//! dropped after parsing so the compressed file pages do not remain in RSS.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -18,7 +19,8 @@ use crate::metadata::GridMetadata;
 /// A read-only memory-mapped view of an entire `.nvdb` file plus the
 /// parsed per-grid metadata.
 pub struct NvdbFile {
-    mmap: Arc<Mmap>,
+    _mmap: Option<Arc<Mmap>>,
+    file_size: usize,
     grids: Vec<Grid>,
 }
 
@@ -144,7 +146,14 @@ impl NvdbFile {
                 });
             }
         }
-        Ok(NvdbFile { mmap, grids })
+        let needs_mmap = grids
+            .iter()
+            .any(|grid| matches!(grid.bytes, GridBytes::Mmap { .. }));
+        Ok(NvdbFile {
+            _mmap: needs_mmap.then_some(mmap),
+            file_size: total as usize,
+            grids,
+        })
     }
 
     /// All grids found in the file, in document order.
@@ -152,9 +161,9 @@ impl NvdbFile {
         &self.grids
     }
 
-    /// Total file size in bytes (length of the underlying mmap).
+    /// Total file size in bytes.
     pub fn file_size(&self) -> usize {
-        self.mmap.len()
+        self.file_size
     }
 }
 
