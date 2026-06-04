@@ -21,6 +21,9 @@ pub enum Error {
     /// The grid metadata declared a name longer than the remaining
     /// segment bytes -- almost certainly a malformed file.
     BadGridName { wanted: usize, available: usize },
+    /// A compressed segment decompressed to a different size than the
+    /// NanoVDB metadata declared.
+    BadDecompressedSize { expected: u64, actual: u64 },
 }
 
 impl fmt::Display for Error {
@@ -46,6 +49,11 @@ impl fmt::Display for Error {
                 f,
                 "grid name claims {} bytes but only {} remain in the segment",
                 wanted, available
+            ),
+            Error::BadDecompressedSize { expected, actual } => write!(
+                f,
+                "decompressed NanoVDB grid size mismatch: expected {} bytes, got {}",
+                expected, actual
             ),
         }
     }

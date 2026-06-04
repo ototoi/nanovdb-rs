@@ -13,11 +13,12 @@ categories = ["rendering::data-formats", "graphics", "no-std::no-alloc"]
 [dependencies]
 memmap2 = "0.9"
 flate2 = { version = "1", optional = true }
+tempfile = { version = "3", optional = true }
 
 [features]
 default = ["zip"]
 # Enables ZIP (zlib) decompression of NanoVDB segments. Without this
 # feature, opening a `Codec::Zip` file returns `Error::CompressionUnsupported`.
-zip = ["dep:flate2"]
+zip = ["dep:flate2", "dep:tempfile"]
 
 [dev-dependencies]
