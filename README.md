@@ -8,9 +8,8 @@ modern renderers for fog, fire, cloud, and similar volumetric assets.
 
 The crate provides memory-mapped file access, per-grid metadata, raw grid
 bytes, world/index coordinate transforms, and FloatGrid point sampling. It
-is designed as a standalone NanoVDB reader; renderers such as
-[pbrt-r4](https://github.com/ototoi/pbrt-r4) can use it to implement their
-own volume integrations.
+is designed as a standalone NanoVDB reader for applications that need to
+inspect or sample sparse volumetric data.
 
 ## Status
 
