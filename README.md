@@ -6,11 +6,11 @@ A small, pure-Rust reader for **NanoVDB** (`.nvdb`) sparse volumetric grid
 files — the static runtime form of OpenVDB used by pbrt-v4 and other
 modern renderers for fog, fire, cloud, and similar volumetric assets.
 
-This crate exists primarily to feed
-[pbrt-r4](https://github.com/ototoi/pbrt-r4)'s `GridMedium`. It's the
-read half of [OpenVDB's NanoVDB I/O
-format](https://www.openvdb.org/documentation/doxygen/group__NanoVDB.html);
-voxel-level tree traversal is a follow-up release.
+The crate provides memory-mapped file access, per-grid metadata, raw grid
+bytes, world/index coordinate transforms, and FloatGrid point sampling. It
+is designed as a standalone NanoVDB reader; renderers such as
+[pbrt-r4](https://github.com/ototoi/pbrt-r4) can use it to implement their
+own volume integrations.
 
 ## Status
 
@@ -22,8 +22,8 @@ voxel-level tree traversal is a follow-up release.
       walk
 - [x] ZIP (zlib) compressed segments (default `zip` feature, via
       `flate2`)
-- [x] In-crate voxel point lookup for `FloatGrid` (`ReadAccessor`)
-      with trilinear interpolation + index<->world transform
+- [x] In-crate NanoVDB tree traversal and voxel point lookup for `FloatGrid`
+      (`ReadAccessor`) with trilinear interpolation + index<->world transform
 - [ ] `Vec3f` / `Double` grid accessors
 - [ ] BLOSC compressed segments
 
