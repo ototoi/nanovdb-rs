@@ -10,6 +10,7 @@
 //! total bits = 12, so the root key shifts each axis right by 12.
 
 use crate::grid_data::{GridDataHeader, GRID_DATA_SIZE};
+use std::ptr;
 
 const LEAF_LOG2DIM: i32 = 3;
 const LOWER_LOG2DIM: i32 = 4;
@@ -77,6 +78,240 @@ impl TreeData {
     pub fn root_offset(self) -> u64 {
         self.node_offset[3]
     }
+}
+
+/// A validated, zero-copy view of a Float NanoVDB tree.
+///
+/// Construction walks every possible child link, so the direct reader can
+/// use fixed-layout reads without rechecking node ranges in the sampling
+/// loop. The view is tied to the exact byte slice it validated.
+#[derive(Debug, Clone, Copy)]
+pub struct ValidatedFloatTree {
+    background: f32,
+    root_abs: usize,
+    root_table_size: u32,
+    base: usize,
+    len: usize,
+}
+
+impl ValidatedFloatTree {
+    pub fn new(bytes: &[u8]) -> Option<Self> {
+        if cfg!(target_endian = "big") || bytes.len() < GRID_DATA_SIZE + 64 {
+            return None;
+        }
+        let grid_type = u32::from_le_bytes(bytes[636..640].try_into().ok()?);
+        if crate::types::GridType::from_raw(grid_type) != crate::types::GridType::Float {
+            return None;
+        }
+        let tree = TreeData::parse(&bytes[GRID_DATA_SIZE..GRID_DATA_SIZE + 64]);
+        let root_abs = GRID_DATA_SIZE.checked_add(tree.root_offset() as usize)?;
+        let root_table_size = read_u32(bytes, root_abs.checked_add(24)?)?;
+        checked_range(bytes, root_abs, ROOT_HEADER_SIZE)?;
+        let root_bytes = (root_table_size as usize).checked_mul(ROOT_TILE_SIZE)?;
+        checked_range(bytes, root_abs.checked_add(ROOT_HEADER_SIZE)?, root_bytes)?;
+
+        for index in 0..root_table_size as usize {
+            let tile = root_abs + ROOT_HEADER_SIZE + index * ROOT_TILE_SIZE;
+            let child = read_i64(bytes, tile + 8)?;
+            if child != 0 {
+                let upper = child_target(root_abs, child)?;
+                validate_upper(bytes, upper)?;
+            }
+        }
+        let background = read_f32(bytes, root_abs + 28)?;
+        Some(Self {
+            background,
+            root_abs,
+            root_table_size,
+            base: bytes.as_ptr() as usize,
+            len: bytes.len(),
+        })
+    }
+
+    /// Sample the validated grid. Returns `None` if `bytes` is not the exact
+    /// slice used during validation, allowing the caller to use its safe path.
+    #[inline(always)]
+    pub fn sample(&self, bytes: &[u8], mut xyz: [f32; 3]) -> Option<f32> {
+        if bytes.as_ptr() as usize != self.base || bytes.len() != self.len {
+            return None;
+        }
+        let coord = [
+            floor_coord_component(&mut xyz[0]),
+            floor_coord_component(&mut xyz[1]),
+            floor_coord_component(&mut xyz[2]),
+        ];
+        Some(unsafe { self.sample_unchecked(bytes, coord, xyz) })
+    }
+
+    #[inline(always)]
+    unsafe fn sample_unchecked(&self, bytes: &[u8], coord: [i32; 3], xyz: [f32; 3]) -> f32 {
+        let mut values = [0.0; 8];
+        for z in 0..2 {
+            for y in 0..2 {
+                for x in 0..2 {
+                    values[x + 2 * (y + 2 * z)] = unsafe {
+                        self.value_unchecked(
+                            bytes,
+                            [
+                                coord[0] + x as i32,
+                                coord[1] + y as i32,
+                                coord[2] + z as i32,
+                            ],
+                        )
+                    };
+                }
+            }
+        }
+        let z0 = values[0] + xyz[2] * (values[4] - values[0]);
+        let z1 = values[2] + xyz[2] * (values[6] - values[2]);
+        let y0 = z0 + xyz[1] * (z1 - z0);
+        let z2 = values[1] + xyz[2] * (values[5] - values[1]);
+        let z3 = values[3] + xyz[2] * (values[7] - values[3]);
+        let y1 = z2 + xyz[1] * (z3 - z2);
+        y0 + xyz[0] * (y1 - y0)
+    }
+
+    #[inline(always)]
+    unsafe fn value_unchecked(&self, bytes: &[u8], ijk: [i32; 3]) -> f32 {
+        let root_key = coord_to_root_key(ijk);
+        let mut tile = self.root_abs + ROOT_HEADER_SIZE;
+        for _ in 0..self.root_table_size {
+            if unsafe { read_u64_unchecked(bytes, tile) } == root_key {
+                let child = unsafe { read_i64_unchecked(bytes, tile + 8) };
+                if child == 0 {
+                    return unsafe { read_f32_unchecked(bytes, tile + 20) };
+                }
+                let upper = (self.root_abs as i64 + child) as usize;
+                return unsafe { self.upper_value_unchecked(bytes, upper, ijk) };
+            }
+            tile += ROOT_TILE_SIZE;
+        }
+        self.background
+    }
+
+    #[inline(always)]
+    unsafe fn upper_value_unchecked(&self, bytes: &[u8], upper: usize, ijk: [i32; 3]) -> f32 {
+        let off = upper_offset(ijk) as usize;
+        let mask = upper + 32 + 8 + UPPER_MASK_SIZE;
+        let entry = upper + UPPER_HEADER_SIZE + off * 8;
+        if unsafe { mask_is_on_unchecked(bytes, mask, off as u32) } {
+            let lower = (upper as i64 + unsafe { read_i64_unchecked(bytes, entry) }) as usize;
+            unsafe { self.lower_value_unchecked(bytes, lower, ijk) }
+        } else {
+            unsafe { read_f32_unchecked(bytes, entry) }
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn lower_value_unchecked(&self, bytes: &[u8], lower: usize, ijk: [i32; 3]) -> f32 {
+        let off = lower_offset(ijk) as usize;
+        let mask = lower + 32 + 8 + LOWER_MASK_SIZE;
+        let entry = lower + LOWER_HEADER_SIZE + off * 8;
+        if unsafe { mask_is_on_unchecked(bytes, mask, off as u32) } {
+            let leaf = (lower as i64 + unsafe { read_i64_unchecked(bytes, entry) }) as usize;
+            unsafe {
+                read_f32_unchecked(
+                    bytes,
+                    leaf + LEAF_VALUES_OFF + leaf_offset(ijk) as usize * 4,
+                )
+            }
+        } else {
+            unsafe { read_f32_unchecked(bytes, entry) }
+        }
+    }
+}
+
+fn floor_coord_component(value: &mut f32) -> i32 {
+    let integer = value.floor();
+    *value -= integer;
+    integer as i32
+}
+
+fn checked_range(bytes: &[u8], offset: usize, len: usize) -> Option<()> {
+    offset
+        .checked_add(len)
+        .filter(|end| *end <= bytes.len())
+        .map(|_| ())
+}
+
+fn child_target(base: usize, child: i64) -> Option<usize> {
+    let target = (base as i64).checked_add(child)?;
+    if target < 0 {
+        return None;
+    }
+    let target = target as usize;
+    (target % 32 == 0).then_some(target)
+}
+
+fn validate_upper(bytes: &[u8], upper: usize) -> Option<()> {
+    checked_range(bytes, upper, UPPER_SIZE)?;
+    let mask = upper + 32 + 8 + UPPER_MASK_SIZE;
+    let table = upper + UPPER_HEADER_SIZE;
+    for offset in 0..32768u32 {
+        if mask_is_on(&bytes[mask..mask + UPPER_MASK_SIZE], offset) {
+            let child = read_i64(bytes, table + offset as usize * 8)?;
+            if child != 0 {
+                validate_lower(bytes, child_target(upper, child)?)?;
+            }
+        }
+    }
+    Some(())
+}
+
+fn validate_lower(bytes: &[u8], lower: usize) -> Option<()> {
+    checked_range(bytes, lower, LOWER_SIZE)?;
+    let mask = lower + 32 + 8 + LOWER_MASK_SIZE;
+    let table = lower + LOWER_HEADER_SIZE;
+    for offset in 0..4096u32 {
+        if mask_is_on(&bytes[mask..mask + LOWER_MASK_SIZE], offset) {
+            let child = read_i64(bytes, table + offset as usize * 8)?;
+            if child != 0 {
+                checked_range(bytes, child_target(lower, child)?, LEAF_SIZE)?;
+            }
+        }
+    }
+    Some(())
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
+fn read_i64(bytes: &[u8], offset: usize) -> Option<i64> {
+    Some(i64::from_le_bytes(
+        bytes.get(offset..offset + 8)?.try_into().ok()?,
+    ))
+}
+
+fn read_f32(bytes: &[u8], offset: usize) -> Option<f32> {
+    Some(f32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
+}
+
+#[inline(always)]
+unsafe fn read_u64_unchecked(bytes: &[u8], offset: usize) -> u64 {
+    u64::from_le(unsafe { ptr::read_unaligned(bytes.as_ptr().add(offset) as *const u64) })
+}
+
+#[inline(always)]
+unsafe fn read_i64_unchecked(bytes: &[u8], offset: usize) -> i64 {
+    i64::from_le(unsafe { ptr::read_unaligned(bytes.as_ptr().add(offset) as *const i64) })
+}
+
+#[inline(always)]
+unsafe fn read_f32_unchecked(bytes: &[u8], offset: usize) -> f32 {
+    f32::from_bits(u32::from_le(unsafe {
+        ptr::read_unaligned(bytes.as_ptr().add(offset) as *const u32)
+    }))
+}
+
+#[inline(always)]
+unsafe fn mask_is_on_unchecked(bytes: &[u8], mask: usize, offset: u32) -> bool {
+    let word = mask + (offset as usize >> 6) * 8;
+    (unsafe { read_u64_unchecked(bytes, word) } >> (offset & 63)) & 1 != 0
 }
 
 /// pbrt-v4 `RootData<ChildT>::CoordToKey` with `USE_SINGLE_ROOT_KEY`:
@@ -175,6 +410,10 @@ const fn internal_header_size_const(log2dim: i32) -> usize {
 // 96..(96+512*4)  mValues
 const LEAF_VALUE_MASK_OFF: usize = 16;
 const LEAF_VALUES_OFF: usize = 96;
+
+const LEAF_SIZE: usize = LEAF_VALUES_OFF + 512 * 4;
+const UPPER_SIZE: usize = internal_header_size_const(UPPER_LOG2DIM) + 32768 * 8;
+const LOWER_SIZE: usize = internal_header_size_const(LOWER_LOG2DIM) + 4096 * 8;
 
 /// Random-access accessor over the Float tree.
 ///

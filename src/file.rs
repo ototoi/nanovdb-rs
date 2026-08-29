@@ -373,5 +373,38 @@ mod tests {
             v_sample,
             v_int
         );
+
+        let validated = crate::ValidatedFloatTree::new(grid.raw_bytes()).expect("validated tree");
+        for point in [
+            [
+                mid[0] as f32 + 0.125,
+                mid[1] as f32 + 0.25,
+                mid[2] as f32 + 0.5,
+            ],
+            [
+                bbox_min[0] as f32 - 0.25,
+                bbox_min[1] as f32 + 0.5,
+                bbox_max[2] as f32 + 0.75,
+            ],
+            [
+                bbox_max[0] as f32 + 1.25,
+                bbox_max[1] as f32 + 0.5,
+                bbox_max[2] as f32 + 0.25,
+            ],
+        ] {
+            let mut reference_accessor = grid.float_read_accessor().expect("float accessor");
+            let reference = crate::create_sampler1(&mut reference_accessor).sample([
+                point[0] as f64,
+                point[1] as f64,
+                point[2] as f64,
+            ]) as f32;
+            let direct = validated
+                .sample(grid.raw_bytes(), point)
+                .expect("direct sample");
+            assert!(
+                (direct - reference).abs() <= 1e-30,
+                "sample mismatch at {point:?}"
+            );
+        }
     }
 }

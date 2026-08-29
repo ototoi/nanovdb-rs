@@ -59,6 +59,6 @@ pub use grid_data::{GridDataHeader, Map, GRID_DATA_SIZE, MAP_SIZE};
 pub use header::{Codec, SegmentHeader, Version};
 pub use metadata::GridMetadata;
 pub use sample_from_voxels::{create_sampler1, SampleFromVoxels};
-pub use tree_f32::{ReadAccessor, TreeData};
+pub use tree_f32::{ReadAccessor, TreeData, ValidatedFloatTree};
 pub use tree_vec3f::Vec3f;
 pub use types::{GridClass, GridType, Vec3d};
