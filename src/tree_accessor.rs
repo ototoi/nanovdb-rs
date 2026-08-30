@@ -51,6 +51,13 @@ impl<'a> ValidatedTree<'a, Vec3f> {
             Validated::Float(_) => unreachable!(),
         }
     }
+
+    pub fn is_active(&self, ijk: [i32; 3]) -> bool {
+        match &self.inner {
+            Validated::Vec3f(tree) => tree.is_active(ijk),
+            Validated::Float(_) => unreachable!(),
+        }
+    }
 }
 
 /// Typed random-access reader for NanoVDB trees.
@@ -115,9 +122,16 @@ impl<'a> ReadAccessor<'a, Vec3f> {
         }
     }
 
-    pub fn get_value(&self, ijk: [i32; 3]) -> Vec3f {
-        match &self.inner {
+    pub fn get_value(&mut self, ijk: [i32; 3]) -> Vec3f {
+        match &mut self.inner {
             Accessor::Vec3f(accessor) => accessor.get_value(ijk),
+            Accessor::Float(_) => unreachable!(),
+        }
+    }
+
+    pub fn is_active(&mut self, ijk: [i32; 3]) -> bool {
+        match &mut self.inner {
+            Accessor::Vec3f(accessor) => accessor.is_active(ijk),
             Accessor::Float(_) => unreachable!(),
         }
     }

@@ -1,4 +1,4 @@
-use nanovdb_rs::{create_sampler1, NvdbFile, Vec3d};
+use nanovdb_rs::{create_sampler1, NvdbFile, Vec3d, Vec3f};
 
 fn fixture_root() -> std::path::PathBuf {
     std::env::var_os("NANOVDB_TEST_FIXTURE_ROOT")
@@ -105,4 +105,19 @@ fn sample_bunny_cloud() {
         sampled_value,
         integer_value
     );
+}
+
+#[test]
+fn sample_vec3f_fixture() {
+    let path = fixture("vec3f", "vec3f.nvdb");
+    let file = NvdbFile::open(&path).expect("open vec3f fixture");
+    let grid = &file.grids()[0];
+    let mut accessor = grid.vec3f_read_accessor().expect("Vec3f accessor");
+
+    assert_eq!(accessor.background(), Vec3f::new(1.0, 2.0, 3.0));
+    assert_eq!(
+        accessor.get_value([100, 100, 100]),
+        Vec3f::new(1.0, 2.0, 3.0)
+    );
+    assert!(!accessor.is_active([100, 100, 100]));
 }

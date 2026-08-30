@@ -61,9 +61,10 @@ fn reads_a_vec3f_root_tile() {
     }
     bytes[tile + 16..tile + 20].copy_from_slice(&1_u32.to_le_bytes());
 
-    let accessor = ReadAccessor::<Vec3f>::from_grid_bytes(&bytes).expect("Vec3f accessor");
+    let mut accessor = ReadAccessor::<Vec3f>::from_grid_bytes(&bytes).expect("Vec3f accessor");
     assert_eq!(accessor.background(), Vec3f::new(1.0, 1.0, 1.0));
     assert_eq!(accessor.get_value([0, 0, 0]), Vec3f::new(2.0, 3.0, 4.0));
+    assert!(accessor.is_active([0, 0, 0]));
 
     let tree = ValidatedTree::<Vec3f>::new(&bytes).expect("validated Vec3f tree");
     assert_eq!(tree.get_value([0, 0, 0]), Vec3f::new(2.0, 3.0, 4.0));
