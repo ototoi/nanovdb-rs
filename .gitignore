@@ -17,3 +17,5 @@ debug
 
 # MSVC pdb
 *.pdb
+
+.env
