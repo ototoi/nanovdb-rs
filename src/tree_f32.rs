@@ -10,6 +10,7 @@
 //! total bits = 12, so the root key shifts each axis right by 12.
 
 use crate::grid_data::{GridDataHeader, GRID_DATA_SIZE};
+use std::collections::HashSet;
 use std::ptr;
 
 const LEAF_LOG2DIM: i32 = 3;
@@ -86,16 +87,15 @@ impl TreeData {
 /// use fixed-layout reads without rechecking node ranges in the sampling
 /// loop. The view is tied to the exact byte slice it validated.
 #[derive(Debug, Clone, Copy)]
-pub struct ValidatedFloatTree {
+pub struct ValidatedFloatTree<'a> {
+    bytes: &'a [u8],
     background: f32,
     root_abs: usize,
     root_table_size: u32,
-    base: usize,
-    len: usize,
 }
 
-impl ValidatedFloatTree {
-    pub fn new(bytes: &[u8]) -> Option<Self> {
+impl<'a> ValidatedFloatTree<'a> {
+    pub fn new(bytes: &'a [u8]) -> Option<Self> {
         if cfg!(target_endian = "big") || bytes.len() < GRID_DATA_SIZE + 64 {
             return None;
         }
@@ -110,12 +110,16 @@ impl ValidatedFloatTree {
         let root_bytes = (root_table_size as usize).checked_mul(ROOT_TILE_SIZE)?;
         checked_range(bytes, root_abs.checked_add(ROOT_HEADER_SIZE)?, root_bytes)?;
 
+        let mut validated_upper = HashSet::new();
+        let mut validated_lower = HashSet::new();
         for index in 0..root_table_size as usize {
             let tile = root_abs + ROOT_HEADER_SIZE + index * ROOT_TILE_SIZE;
-            let child = read_i64(bytes, tile + 8)?;
+            let child = read_i64(bytes, tile.checked_add(8)?)?;
             if child != 0 {
                 let upper = child_target(root_abs, child)?;
-                validate_upper(bytes, upper)?;
+                if validated_upper.insert(upper) {
+                    validate_upper(bytes, upper, &mut validated_lower)?;
+                }
             }
         }
         let background = read_f32(bytes, root_abs + 28)?;
@@ -123,24 +127,19 @@ impl ValidatedFloatTree {
             background,
             root_abs,
             root_table_size,
-            base: bytes.as_ptr() as usize,
-            len: bytes.len(),
+            bytes,
         })
     }
 
-    /// Sample the validated grid. Returns `None` if `bytes` is not the exact
-    /// slice used during validation, allowing the caller to use its safe path.
+    /// Sample the validated grid.
     #[inline(always)]
-    pub fn sample(&self, bytes: &[u8], mut xyz: [f32; 3]) -> Option<f32> {
-        if bytes.as_ptr() as usize != self.base || bytes.len() != self.len {
-            return None;
-        }
+    pub fn sample(&self, mut xyz: [f32; 3]) -> Option<f32> {
         let coord = [
-            floor_coord_component(&mut xyz[0]),
-            floor_coord_component(&mut xyz[1]),
-            floor_coord_component(&mut xyz[2]),
+            floor_coord_component(&mut xyz[0])?,
+            floor_coord_component(&mut xyz[1])?,
+            floor_coord_component(&mut xyz[2])?,
         ];
-        Some(unsafe { self.sample_unchecked(bytes, coord, xyz) })
+        Some(unsafe { self.sample_unchecked(self.bytes, coord, xyz) })
     }
 
     #[inline(always)]
@@ -192,10 +191,14 @@ impl ValidatedFloatTree {
     #[inline(always)]
     unsafe fn upper_value_unchecked(&self, bytes: &[u8], upper: usize, ijk: [i32; 3]) -> f32 {
         let off = upper_offset(ijk) as usize;
-        let mask = upper + 32 + 8 + UPPER_MASK_SIZE;
+        let mask = upper + 32 + UPPER_MASK_SIZE;
         let entry = upper + UPPER_HEADER_SIZE + off * 8;
         if unsafe { mask_is_on_unchecked(bytes, mask, off as u32) } {
-            let lower = (upper as i64 + unsafe { read_i64_unchecked(bytes, entry) }) as usize;
+            let child = unsafe { read_i64_unchecked(bytes, entry) };
+            if child == 0 {
+                return self.background;
+            }
+            let lower = (upper as i64 + child) as usize;
             unsafe { self.lower_value_unchecked(bytes, lower, ijk) }
         } else {
             unsafe { read_f32_unchecked(bytes, entry) }
@@ -205,10 +208,14 @@ impl ValidatedFloatTree {
     #[inline(always)]
     unsafe fn lower_value_unchecked(&self, bytes: &[u8], lower: usize, ijk: [i32; 3]) -> f32 {
         let off = lower_offset(ijk) as usize;
-        let mask = lower + 32 + 8 + LOWER_MASK_SIZE;
+        let mask = lower + 32 + LOWER_MASK_SIZE;
         let entry = lower + LOWER_HEADER_SIZE + off * 8;
         if unsafe { mask_is_on_unchecked(bytes, mask, off as u32) } {
-            let leaf = (lower as i64 + unsafe { read_i64_unchecked(bytes, entry) }) as usize;
+            let child = unsafe { read_i64_unchecked(bytes, entry) };
+            if child == 0 {
+                return self.background;
+            }
+            let leaf = (lower as i64 + child) as usize;
             unsafe {
                 read_f32_unchecked(
                     bytes,
@@ -221,10 +228,13 @@ impl ValidatedFloatTree {
     }
 }
 
-fn floor_coord_component(value: &mut f32) -> i32 {
+fn floor_coord_component(value: &mut f32) -> Option<i32> {
     let integer = value.floor();
+    if !integer.is_finite() || integer < i32::MIN as f32 || integer >= i32::MAX as f32 {
+        return None;
+    }
     *value -= integer;
-    integer as i32
+    Some(integer as i32)
 }
 
 fn checked_range(bytes: &[u8], offset: usize, len: usize) -> Option<()> {
@@ -243,15 +253,19 @@ fn child_target(base: usize, child: i64) -> Option<usize> {
     (target % 32 == 0).then_some(target)
 }
 
-fn validate_upper(bytes: &[u8], upper: usize) -> Option<()> {
+fn validate_upper(bytes: &[u8], upper: usize, validated_lower: &mut HashSet<usize>) -> Option<()> {
     checked_range(bytes, upper, UPPER_SIZE)?;
-    let mask = upper + 32 + 8 + UPPER_MASK_SIZE;
+    let mask = upper + 32 + UPPER_MASK_SIZE;
     let table = upper + UPPER_HEADER_SIZE;
     for offset in 0..32768u32 {
         if mask_is_on(&bytes[mask..mask + UPPER_MASK_SIZE], offset) {
-            let child = read_i64(bytes, table + offset as usize * 8)?;
-            if child != 0 {
-                validate_lower(bytes, child_target(upper, child)?)?;
+            let child = read_i64(bytes, table.checked_add(offset as usize * 8)?)?;
+            if child == 0 {
+                return None;
+            }
+            let lower = child_target(upper, child)?;
+            if validated_lower.insert(lower) {
+                validate_lower(bytes, lower)?;
             }
         }
     }
@@ -260,14 +274,15 @@ fn validate_upper(bytes: &[u8], upper: usize) -> Option<()> {
 
 fn validate_lower(bytes: &[u8], lower: usize) -> Option<()> {
     checked_range(bytes, lower, LOWER_SIZE)?;
-    let mask = lower + 32 + 8 + LOWER_MASK_SIZE;
+    let mask = lower + 32 + LOWER_MASK_SIZE;
     let table = lower + LOWER_HEADER_SIZE;
     for offset in 0..4096u32 {
         if mask_is_on(&bytes[mask..mask + LOWER_MASK_SIZE], offset) {
-            let child = read_i64(bytes, table + offset as usize * 8)?;
-            if child != 0 {
-                checked_range(bytes, child_target(lower, child)?, LEAF_SIZE)?;
+            let child = read_i64(bytes, table.checked_add(offset as usize * 8)?)?;
+            if child == 0 {
+                return None;
             }
+            checked_range(bytes, child_target(lower, child)?, LEAF_SIZE)?;
         }
     }
     Some(())
@@ -275,19 +290,19 @@ fn validate_lower(bytes: &[u8], lower: usize) -> Option<()> {
 
 fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
     Some(u32::from_le_bytes(
-        bytes.get(offset..offset + 4)?.try_into().ok()?,
+        bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
     ))
 }
 
 fn read_i64(bytes: &[u8], offset: usize) -> Option<i64> {
     Some(i64::from_le_bytes(
-        bytes.get(offset..offset + 8)?.try_into().ok()?,
+        bytes.get(offset..offset.checked_add(8)?)?.try_into().ok()?,
     ))
 }
 
 fn read_f32(bytes: &[u8], offset: usize) -> Option<f32> {
     Some(f32::from_le_bytes(
-        bytes.get(offset..offset + 4)?.try_into().ok()?,
+        bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
     ))
 }
 

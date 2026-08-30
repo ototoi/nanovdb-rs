@@ -398,13 +398,13 @@ mod tests {
                 point[1] as f64,
                 point[2] as f64,
             ]) as f32;
-            let direct = validated
-                .sample(grid.raw_bytes(), point)
-                .expect("direct sample");
+            let direct = validated.sample(point).expect("direct sample");
             assert!(
                 (direct - reference).abs() <= 1e-30,
                 "sample mismatch at {point:?}"
             );
         }
+        assert!(validated.sample([f32::INFINITY, 0.0, 0.0]).is_none());
+        assert!(validated.sample([i32::MAX as f32, 0.0, 0.0]).is_none());
     }
 }
