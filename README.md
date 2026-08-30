@@ -1,6 +1,8 @@
 # nanovdb-rs
 
 [![License](https://img.shields.io/github/license/ototoi/nanovdb-rs)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/ototoi/nanovdb-rs)](https://github.com/ototoi/nanovdb-rs/releases/latest)
+[![Crates.io Version](https://img.shields.io/crates/v/nanovdb-rs?color=%20%23ecc57b)](https://crates.io/crates/nanovdb-rs)
 
 `nanovdb-rs` is a standalone, pure-Rust reader for NanoVDB (`.nvdb`)
 sparse volumetric grid files. It provides memory-mapped file access,
