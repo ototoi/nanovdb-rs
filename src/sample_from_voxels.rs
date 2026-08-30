@@ -1,4 +1,4 @@
-use crate::tree_f32::ReadAccessor;
+use crate::ReadAccessor;
 
 /// Trilinear voxel sampler for Float grids.
 ///

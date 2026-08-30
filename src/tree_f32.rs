@@ -435,7 +435,7 @@ const LOWER_SIZE: usize = internal_header_size_const(LOWER_LOG2DIM) + 4096 * 8;
 /// The public concept follows `nanovdb::ReadAccessor`; the internal cache
 /// layout follows `cnanovdb_readaccessor`: last key plus cached
 /// Leaf/Lower/Upper/Root node offsets.
-pub struct ReadAccessor<'a> {
+pub struct FloatReadAccessor<'a> {
     grid_bytes: &'a [u8],
     background: f32,
     root_abs: usize,
@@ -444,7 +444,7 @@ pub struct ReadAccessor<'a> {
     node: [usize; 4],
 }
 
-impl<'a> ReadAccessor<'a> {
+impl<'a> FloatReadAccessor<'a> {
     fn initial_nodes(root_abs: usize) -> [usize; 4] {
         let mut node = [0; 4];
         node[ROOT_LEVEL] = root_abs;
@@ -466,7 +466,7 @@ impl<'a> ReadAccessor<'a> {
             f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
         let root_table_size =
             u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
-        Some(ReadAccessor {
+        Some(FloatReadAccessor {
             grid_bytes: bytes,
             background,
             root_abs,
@@ -479,7 +479,7 @@ impl<'a> ReadAccessor<'a> {
     /// Parse just the bits the tree walker needs (`TreeData` +
     /// `background`) without going through the full `GridDataHeader`
     /// parse. Use this once at scene-build time and pair the result
-    /// with [`ReadAccessor::with_tree_data`] on the hot path to avoid the
+    /// with [`FloatReadAccessor::with_tree_data`] on the hot path to avoid the
     /// `String` allocation that `GridDataHeader::parse` does on every
     /// call.
     ///
@@ -505,8 +505,8 @@ impl<'a> ReadAccessor<'a> {
         Some((tree, background))
     }
 
-    /// Construct a `ReadAccessor` from precomputed `TreeData` and
-    /// background value (see [`ReadAccessor::parse_tree_data`]). This is
+    /// Construct a `FloatReadAccessor` from precomputed `TreeData` and
+    /// background value (see [`FloatReadAccessor::parse_tree_data`]). This is
     /// the cheap path: no header parse, no allocation. Suitable for use
     /// in inner loops that need to read voxels billions of times.
     ///
@@ -517,7 +517,7 @@ impl<'a> ReadAccessor<'a> {
         let root_abs = GRID_DATA_SIZE + tree.root_offset() as usize;
         let root_table_size =
             u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
-        ReadAccessor {
+        FloatReadAccessor {
             grid_bytes: bytes,
             background,
             root_abs,

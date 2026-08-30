@@ -17,6 +17,7 @@ depending on a renderer or scene repository.
 - Grid metadata: name, type, voxel count, voxel size, bounding boxes, and version
 - Raw grid bytes for application-specific tree access
 - FloatGrid voxel lookup through `ReadAccessor`
+- Vec3fGrid voxel lookup through `ReadAccessor<Vec3f>`
 - Trilinear FloatGrid sampling through `create_sampler1`
 - World/index coordinate transforms
 - Validated zero-copy FloatGrid sampling through `ValidatedFloatTree`
@@ -24,7 +25,7 @@ depending on a renderer or scene repository.
 Currently unsupported:
 
 - BLOSC compressed segments
-- Full `Double` and `Vec3f` tree accessors
+- Full `Double` tree accessor
 
 ## Installation
 
