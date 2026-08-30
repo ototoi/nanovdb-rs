@@ -217,8 +217,13 @@ impl Grid {
 
     /// Random-access accessor for `Float` grids. Returns `None` for
     /// non-float grid types; callers can match on `value_type()` first.
-    pub fn float_read_accessor(&self) -> Option<crate::tree_f32::ReadAccessor<'_>> {
-        crate::tree_f32::ReadAccessor::from_grid_bytes(self.raw_bytes())
+    pub fn float_read_accessor(&self) -> Option<crate::ReadAccessor<'_, f32>> {
+        crate::ReadAccessor::<f32>::from_grid_bytes(self.raw_bytes())
+    }
+
+    /// Random-access accessor for `Vec3f` grids.
+    pub fn vec3f_read_accessor(&self) -> Option<crate::ReadAccessor<'_, crate::Vec3f>> {
+        crate::ReadAccessor::<crate::Vec3f>::from_grid_bytes(self.raw_bytes())
     }
 
     /// World-space point -> index-space (voxel) coordinate via the

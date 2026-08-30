@@ -10,6 +10,7 @@
 //! total bits = 12, so the root key shifts each axis right by 12.
 
 use crate::grid_data::{GridDataHeader, GRID_DATA_SIZE};
+use crate::tree_data::TreeData;
 use std::collections::HashSet;
 use std::ptr;
 
@@ -31,70 +32,20 @@ const LOWER_LEVEL: usize = 1;
 const UPPER_LEVEL: usize = 2;
 const ROOT_LEVEL: usize = 3;
 
-/// Parsed `nanovdb::TreeData` header fields used by the tree walker.
-/// Cheap to compute and `Copy`, so it can be cached and passed by value
-/// to repeated [`ReadAccessor::with_tree_data`]
-/// calls.
-#[derive(Debug, Clone, Copy)]
-pub struct TreeData {
-    /// NanoVDB `TreeData::mNodeOffset`.
-    pub node_offset: [u64; 4],
-    /// NanoVDB `TreeData::mNodeCount`.
-    pub node_count: [u32; 3],
-    /// NanoVDB `TreeData::mTileCount`.
-    pub tile_count: [u32; 3],
-    /// NanoVDB `TreeData::mVoxelCount`.
-    pub voxel_count: u64,
-}
-
-impl TreeData {
-    pub fn parse(bytes: &[u8]) -> Self {
-        // TreeData layout (NanoVDB.h:2500):
-        //   u64 mNodeOffset[4]  (0=leaf, 1=lower, 2=upper, 3=root)
-        //   u32 mNodeCount[3]
-        //   u32 mTileCount[3]
-        //   u64 mVoxelCount
-        debug_assert!(bytes.len() >= 64);
-        TreeData {
-            node_offset: [
-                u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
-                u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
-                u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-                u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
-            ],
-            node_count: [
-                u32::from_le_bytes(bytes[32..36].try_into().unwrap()),
-                u32::from_le_bytes(bytes[36..40].try_into().unwrap()),
-                u32::from_le_bytes(bytes[40..44].try_into().unwrap()),
-            ],
-            tile_count: [
-                u32::from_le_bytes(bytes[44..48].try_into().unwrap()),
-                u32::from_le_bytes(bytes[48..52].try_into().unwrap()),
-                u32::from_le_bytes(bytes[52..56].try_into().unwrap()),
-            ],
-            voxel_count: u64::from_le_bytes(bytes[56..64].try_into().unwrap()),
-        }
-    }
-
-    pub fn root_offset(self) -> u64 {
-        self.node_offset[3]
-    }
-}
-
 /// A validated, zero-copy view of a Float NanoVDB tree.
 ///
 /// Construction walks every possible child link, so the direct reader can
 /// use fixed-layout reads without rechecking node ranges in the sampling
 /// loop. The view is tied to the exact byte slice it validated.
 #[derive(Debug, Clone, Copy)]
-pub struct ValidatedFloatTree<'a> {
+pub struct FloatValidatedTree<'a> {
     bytes: &'a [u8],
     background: f32,
     root_abs: usize,
     root_table_size: u32,
 }
 
-impl<'a> ValidatedFloatTree<'a> {
+impl<'a> FloatValidatedTree<'a> {
     pub fn new(bytes: &'a [u8]) -> Option<Self> {
         if cfg!(target_endian = "big") || bytes.len() < GRID_DATA_SIZE + 64 {
             return None;
@@ -435,7 +386,7 @@ const LOWER_SIZE: usize = internal_header_size_const(LOWER_LOG2DIM) + 4096 * 8;
 /// The public concept follows `nanovdb::ReadAccessor`; the internal cache
 /// layout follows `cnanovdb_readaccessor`: last key plus cached
 /// Leaf/Lower/Upper/Root node offsets.
-pub struct ReadAccessor<'a> {
+pub struct FloatReadAccessor<'a> {
     grid_bytes: &'a [u8],
     background: f32,
     root_abs: usize,
@@ -444,7 +395,7 @@ pub struct ReadAccessor<'a> {
     node: [usize; 4],
 }
 
-impl<'a> ReadAccessor<'a> {
+impl<'a> FloatReadAccessor<'a> {
     fn initial_nodes(root_abs: usize) -> [usize; 4] {
         let mut node = [0; 4];
         node[ROOT_LEVEL] = root_abs;
@@ -466,7 +417,7 @@ impl<'a> ReadAccessor<'a> {
             f32::from_le_bytes(bytes[root_abs + 28..root_abs + 32].try_into().unwrap());
         let root_table_size =
             u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
-        Some(ReadAccessor {
+        Some(FloatReadAccessor {
             grid_bytes: bytes,
             background,
             root_abs,
@@ -479,7 +430,7 @@ impl<'a> ReadAccessor<'a> {
     /// Parse just the bits the tree walker needs (`TreeData` +
     /// `background`) without going through the full `GridDataHeader`
     /// parse. Use this once at scene-build time and pair the result
-    /// with [`ReadAccessor::with_tree_data`] on the hot path to avoid the
+    /// with [`FloatReadAccessor::with_tree_data`] on the hot path to avoid the
     /// `String` allocation that `GridDataHeader::parse` does on every
     /// call.
     ///
@@ -505,8 +456,8 @@ impl<'a> ReadAccessor<'a> {
         Some((tree, background))
     }
 
-    /// Construct a `ReadAccessor` from precomputed `TreeData` and
-    /// background value (see [`ReadAccessor::parse_tree_data`]). This is
+    /// Construct a `FloatReadAccessor` from precomputed `TreeData` and
+    /// background value (see [`FloatReadAccessor::parse_tree_data`]). This is
     /// the cheap path: no header parse, no allocation. Suitable for use
     /// in inner loops that need to read voxels billions of times.
     ///
@@ -517,7 +468,7 @@ impl<'a> ReadAccessor<'a> {
         let root_abs = GRID_DATA_SIZE + tree.root_offset() as usize;
         let root_table_size =
             u32::from_le_bytes(bytes[root_abs + 24..root_abs + 28].try_into().unwrap());
-        ReadAccessor {
+        FloatReadAccessor {
             grid_bytes: bytes,
             background,
             root_abs,

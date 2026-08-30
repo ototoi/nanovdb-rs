@@ -4,11 +4,11 @@
 //! format](https://www.openvdb.org/documentation/doxygen/group__NanoVDB.html)
 //! to enumerate the grids in a `.nvdb` file, read their per-grid metadata
 //! (name, value type, world / index bounding box, voxel size), and run
-//! point lookups and trilinear sampling against `FloatGrid` voxel data.
+//! point lookups against `FloatGrid` and `Vec3fGrid` voxel data, plus
+//! trilinear sampling for `FloatGrid`.
 //!
-//! `Vec3f` accessor is currently a stub that recognises the grid type
-//! but does not yet walk the tree. `Double` accessor is planned for a
-//! follow-up release.
+//! Float and `Vec3f` tree accessors are available. `Double` accessor is
+//! planned for a follow-up release.
 //!
 //! ## Quick start
 //!
@@ -49,6 +49,8 @@ mod grid_data;
 mod header;
 mod metadata;
 mod sample_from_voxels;
+mod tree_accessor;
+mod tree_data;
 mod tree_f32;
 mod tree_vec3f;
 mod types;
@@ -59,6 +61,8 @@ pub use grid_data::{GridDataHeader, Map, GRID_DATA_SIZE, MAP_SIZE};
 pub use header::{Codec, SegmentHeader, Version};
 pub use metadata::GridMetadata;
 pub use sample_from_voxels::{create_sampler1, SampleFromVoxels};
-pub use tree_f32::{ReadAccessor, TreeData, ValidatedFloatTree};
-pub use tree_vec3f::Vec3f;
-pub use types::{GridClass, GridType, Vec3d};
+pub use tree_accessor::{ReadAccessor, ValidatedTree};
+pub use tree_data::TreeData;
+pub use types::{GridClass, GridType, Vec3d, Vec3f};
+pub type ValidatedFloatTree<'a> = ValidatedTree<'a, f32>;
+pub type ValidatedVec3fTree<'a> = ValidatedTree<'a, Vec3f>;
