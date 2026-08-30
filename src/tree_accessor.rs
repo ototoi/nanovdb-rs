@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::tree_f32::{FloatReadAccessor, FloatValidatedTree, TreeData};
-use crate::tree_vec3f::{Vec3f, Vec3fReadAccessor, Vec3fValidatedTree};
+use crate::tree_vec3f::{Vec3fReadAccessor, Vec3fValidatedTree};
+use crate::types::Vec3f;
 
 enum Accessor<'a> {
     Float(FloatReadAccessor<'a>),

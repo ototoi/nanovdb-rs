@@ -4,28 +4,8 @@
 
 use crate::grid_data::{GridDataHeader, GRID_DATA_SIZE};
 use crate::tree_f32::TreeData;
-use crate::types::GridType;
+use crate::types::{GridType, Vec3f};
 use std::collections::HashSet;
-
-/// Matches `nanovdb::Vec3f` at the byte level.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-#[repr(C)]
-pub struct Vec3f {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Vec3f {
-    pub const ZERO: Self = Self {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-    pub const fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
 
 /// Random-access reader for a `Vec3f` NanoVDB tree.
 pub struct Vec3fValidatedTree<'a> {

@@ -1,5 +1,5 @@
 //! Enum mirrors of NanoVDB's `GridType` and `GridClass` plus the
-//! double-precision `Vec3` r4 needs for AABB/voxel-size metadata.
+//! NanoVDB value types and enum mirrors used by the reader.
 
 /// Mirror of `nanovdb::GridType` (NanoVDB.h around line 425). Only the
 /// values we currently surface are spelled out; everything else maps to
@@ -100,6 +100,27 @@ impl GridClass {
             9 => Self::TensorGrid,
             _ => Self::Unknown,
         }
+    }
+}
+
+/// Single-precision 3-vector, matching `nanovdb::Vec3f` grid values.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(C)]
+pub struct Vec3f {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+impl Vec3f {
+    pub const ZERO: Self = Self {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
     }
 }
 
