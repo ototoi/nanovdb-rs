@@ -30,14 +30,14 @@ Add the crate to your application:
 
 ```toml
 [dependencies]
-nanovdb-rs = "0.0.5"
+nanovdb-rs = "0.0.6"
 ```
 
 ZIP support is enabled by default. To disable it:
 
 ```toml
 [dependencies]
-nanovdb-rs = { version = "0.0.5", default-features = false }
+nanovdb-rs = { version = "0.0.6", default-features = false }
 ```
 
 ## Library usage
