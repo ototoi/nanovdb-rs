@@ -1,7 +1,13 @@
 use nanovdb_rs::NvdbFile;
 
 fn fixture_root() -> Option<std::path::PathBuf> {
-    std::env::var_os("NANOVDB_TEST_FIXTURE_ROOT").map(std::path::PathBuf::from)
+    Some(
+        std::env::var_os("NANOVDB_TEST_FIXTURE_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
+            }),
+    )
 }
 
 fn fixture(name: &str) -> Option<std::path::PathBuf> {
@@ -12,7 +18,11 @@ fn fixture(name: &str) -> Option<std::path::PathBuf> {
         root.join("disney-cloud").join(name),
     ]
     .into_iter()
-    .find(|path| path.exists())
+    .find(|path| {
+        path.metadata()
+            .map(|metadata| metadata.len() > 1024)
+            .unwrap_or(false)
+    })
 }
 
 #[test]
