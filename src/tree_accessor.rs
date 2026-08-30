@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::tree_f32::{FloatReadAccessor, FloatValidatedTree, TreeData};
+use crate::tree_data::TreeData;
+use crate::tree_f32::{FloatReadAccessor, FloatValidatedTree};
 use crate::tree_vec3f::{Vec3fReadAccessor, Vec3fValidatedTree};
 use crate::types::Vec3f;
 

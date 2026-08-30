@@ -10,6 +10,7 @@
 //! total bits = 12, so the root key shifts each axis right by 12.
 
 use crate::grid_data::{GridDataHeader, GRID_DATA_SIZE};
+use crate::tree_data::TreeData;
 use std::collections::HashSet;
 use std::ptr;
 
@@ -30,56 +31,6 @@ const LEAF_LEVEL: usize = 0;
 const LOWER_LEVEL: usize = 1;
 const UPPER_LEVEL: usize = 2;
 const ROOT_LEVEL: usize = 3;
-
-/// Parsed `nanovdb::TreeData` header fields used by the tree walker.
-/// Cheap to compute and `Copy`, so it can be cached and passed by value
-/// to repeated [`ReadAccessor::with_tree_data`]
-/// calls.
-#[derive(Debug, Clone, Copy)]
-pub struct TreeData {
-    /// NanoVDB `TreeData::mNodeOffset`.
-    pub node_offset: [u64; 4],
-    /// NanoVDB `TreeData::mNodeCount`.
-    pub node_count: [u32; 3],
-    /// NanoVDB `TreeData::mTileCount`.
-    pub tile_count: [u32; 3],
-    /// NanoVDB `TreeData::mVoxelCount`.
-    pub voxel_count: u64,
-}
-
-impl TreeData {
-    pub fn parse(bytes: &[u8]) -> Self {
-        // TreeData layout (NanoVDB.h:2500):
-        //   u64 mNodeOffset[4]  (0=leaf, 1=lower, 2=upper, 3=root)
-        //   u32 mNodeCount[3]
-        //   u32 mTileCount[3]
-        //   u64 mVoxelCount
-        debug_assert!(bytes.len() >= 64);
-        TreeData {
-            node_offset: [
-                u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
-                u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
-                u64::from_le_bytes(bytes[16..24].try_into().unwrap()),
-                u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
-            ],
-            node_count: [
-                u32::from_le_bytes(bytes[32..36].try_into().unwrap()),
-                u32::from_le_bytes(bytes[36..40].try_into().unwrap()),
-                u32::from_le_bytes(bytes[40..44].try_into().unwrap()),
-            ],
-            tile_count: [
-                u32::from_le_bytes(bytes[44..48].try_into().unwrap()),
-                u32::from_le_bytes(bytes[48..52].try_into().unwrap()),
-                u32::from_le_bytes(bytes[52..56].try_into().unwrap()),
-            ],
-            voxel_count: u64::from_le_bytes(bytes[56..64].try_into().unwrap()),
-        }
-    }
-
-    pub fn root_offset(self) -> u64 {
-        self.node_offset[3]
-    }
-}
 
 /// A validated, zero-copy view of a Float NanoVDB tree.
 ///

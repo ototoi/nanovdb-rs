@@ -3,7 +3,7 @@
 //! Vec3f tree walking for NanoVDB v32.
 
 use crate::grid_data::{GridDataHeader, GRID_DATA_SIZE};
-use crate::tree_f32::TreeData;
+use crate::tree_data::TreeData;
 use crate::types::{GridType, Vec3f};
 use std::collections::HashSet;
 
