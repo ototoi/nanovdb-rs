@@ -329,7 +329,7 @@ unsafe fn mask_is_on_unchecked(bytes: &[u8], mask: usize, offset: u32) -> bool {
     (unsafe { read_u64_unchecked(bytes, word) } >> (offset & 63)) & 1 != 0
 }
 
-/// pbrt-v4 `RootData<ChildT>::CoordToKey` with `USE_SINGLE_ROOT_KEY`:
+/// NanoVDB `RootData<ChildT>::CoordToKey` with `USE_SINGLE_ROOT_KEY`:
 ///   z's top bits | y's top bits << 21 | x's top bits << 42
 fn coord_to_root_key(ijk: [i32; 3]) -> u64 {
     let xs = (ijk[0] as u32) >> UPPER_TOTAL;

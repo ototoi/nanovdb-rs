@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/github/license/ototoi/nanovdb-rs)](LICENSE)
 
 A small, pure-Rust reader for **NanoVDB** (`.nvdb`) sparse volumetric grid
-files — the static runtime form of OpenVDB used by pbrt-v4 and other
+files — the static runtime form of OpenVDB used by rendering applications and other
 modern renderers for fog, fire, cloud, and similar volumetric assets.
 
 The crate provides memory-mapped file access, per-grid metadata, raw grid
