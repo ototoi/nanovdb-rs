@@ -103,7 +103,8 @@ cargo test --workspace
 
 The integration fixtures are stored under
 `nanovdb-rs-tests/fixtures/` and tracked with Git LFS. A checkout without the
-LFS objects skips those tests. An alternate fixture root can be supplied with
+LFS objects causes these tests to fail with an instruction to run `git lfs
+pull`. An alternate fixture root can be supplied with
 `NANOVDB_TEST_FIXTURE_ROOT`.
 
 Only the library crate is published:

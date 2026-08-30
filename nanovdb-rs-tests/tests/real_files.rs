@@ -1,36 +1,27 @@
 use nanovdb_rs::NvdbFile;
 
-fn fixture_root() -> Option<std::path::PathBuf> {
-    Some(
-        std::env::var_os("NANOVDB_TEST_FIXTURE_ROOT")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
-            }),
-    )
+fn fixture_root() -> std::path::PathBuf {
+    std::env::var_os("NANOVDB_TEST_FIXTURE_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"))
 }
 
-fn fixture(name: &str) -> Option<std::path::PathBuf> {
-    let root = fixture_root()?;
-    [
-        root.join("bunny-cloud").join(name),
-        root.join("explosion").join(name),
-        root.join("disney-cloud").join(name),
-    ]
-    .into_iter()
-    .find(|path| {
-        path.metadata()
-            .map(|metadata| metadata.len() > 1024)
-            .unwrap_or(false)
-    })
+fn fixture(directory: &str, name: &str) -> std::path::PathBuf {
+    let path = fixture_root().join(directory).join(name);
+    let valid_fixture = path
+        .metadata()
+        .map(|metadata| metadata.len() > 1024)
+        .unwrap_or(false);
+    assert!(
+        valid_fixture,
+        "missing LFS fixture {path:?}; run `git lfs pull` or set NANOVDB_TEST_FIXTURE_ROOT"
+    );
+    path
 }
 
 #[test]
 fn open_bunny_cloud() {
-    let Some(path) = fixture("bunny_cloud.nvdb") else {
-        eprintln!("set NANOVDB_TEST_FIXTURE_ROOT to run scene-file tests; skipping");
-        return;
-    };
+    let path = fixture("bunny-cloud", "bunny_cloud.nvdb");
     let file = NvdbFile::open(&path).expect("open bunny_cloud");
     assert!(!file.grids().is_empty(), "expected at least one grid");
     for grid in file.grids() {
@@ -40,10 +31,14 @@ fn open_bunny_cloud() {
 
 #[test]
 fn open_fire() {
-    let Some(path) = fixture("fire.nvdb") else {
-        eprintln!("set NANOVDB_TEST_FIXTURE_ROOT to run scene-file tests; skipping");
-        return;
-    };
+    let path = fixture("explosion", "fire.nvdb");
     let file = NvdbFile::open(&path).expect("open fire");
+    assert!(!file.grids().is_empty());
+}
+
+#[test]
+fn open_disney_cloud() {
+    let path = fixture("disney-cloud", "wdas_cloud_quarter.nvdb");
+    let file = NvdbFile::open(&path).expect("open disney cloud");
     assert!(!file.grids().is_empty());
 }
