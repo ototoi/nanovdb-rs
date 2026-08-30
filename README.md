@@ -40,7 +40,7 @@ ZIP support is enabled by default. To disable it:
 
 ```toml
 [dependencies]
-nanovdb-rs = { version = "0.0.6", default-features = false }
+nanovdb-rs = { version = "0.0.7", default-features = false }
 ```
 
 ## Library usage

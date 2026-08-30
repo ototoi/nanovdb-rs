@@ -45,8 +45,19 @@ pub struct FloatValidatedTree<'a> {
     root_table_size: u32,
 }
 
-impl<'a> FloatValidatedTree<'a> {
-    pub fn new(bytes: &'a [u8]) -> Option<Self> {
+/// Owned validation data for a Float NanoVDB tree.
+///
+/// The cache does not retain the grid bytes. Callers must pass the same grid
+/// bytes to [`Self::sample`] that were used to construct the cache.
+#[derive(Debug, Clone, Copy)]
+pub struct ValidatedFloatTreeCache {
+    background: f32,
+    root_abs: usize,
+    root_table_size: u32,
+}
+
+impl ValidatedFloatTreeCache {
+    pub fn new(bytes: &[u8]) -> Option<Self> {
         if cfg!(target_endian = "big") || bytes.len() < GRID_DATA_SIZE + 64 {
             return None;
         }
@@ -78,6 +89,27 @@ impl<'a> FloatValidatedTree<'a> {
             background,
             root_abs,
             root_table_size,
+        })
+    }
+
+    pub fn sample(&self, bytes: &[u8], xyz: [f32; 3]) -> Option<f32> {
+        FloatValidatedTree {
+            bytes,
+            background: self.background,
+            root_abs: self.root_abs,
+            root_table_size: self.root_table_size,
+        }
+        .sample(xyz)
+    }
+}
+
+impl<'a> FloatValidatedTree<'a> {
+    pub fn new(bytes: &'a [u8]) -> Option<Self> {
+        let cache = ValidatedFloatTreeCache::new(bytes)?;
+        Some(Self {
+            background: cache.background,
+            root_abs: cache.root_abs,
+            root_table_size: cache.root_table_size,
             bytes,
         })
     }

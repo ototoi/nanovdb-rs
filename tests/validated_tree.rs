@@ -1,4 +1,4 @@
-use nanovdb_rs::{ReadAccessor, ValidatedFloatTree, ValidatedTree, Vec3f};
+use nanovdb_rs::{ReadAccessor, ValidatedFloatTree, ValidatedFloatTreeCache, ValidatedTree, Vec3f};
 
 const GRID_DATA_SIZE: usize = 672;
 const ROOT_OFFSET: usize = 64;
@@ -27,6 +27,13 @@ fn samples_a_valid_root_tile_without_external_assets() {
 
     assert_eq!(tree.sample([0.0, 0.0, 0.0]), Some(2.5));
     assert_eq!(tree.sample([0.75, 0.25, 0.5]), Some(2.5));
+}
+
+#[test]
+fn reuses_owned_float_validation_cache() {
+    let bytes = root_tile_grid(0.0, 1.0);
+    let cache = ValidatedFloatTreeCache::new(&bytes).expect("validation cache");
+    assert_eq!(cache.sample(&bytes, [0.25, 0.5, 0.75]), Some(1.0));
 }
 
 #[test]
