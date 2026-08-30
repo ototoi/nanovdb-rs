@@ -2,7 +2,7 @@
 //!
 //! Mirrors `nanovdb::GridData` (NanoVDB.h:2184) and the embedded
 //! `nanovdb::Map` (NanoVDB.h:1997) used for index <-> world transforms.
-//! Targets NanoVDB v32 (used by pbrt-v4-scenes).
+//! Targets NanoVDB v32.
 
 use crate::types::Vec3d;
 
@@ -60,7 +60,7 @@ impl Map {
         }
     }
 
-    /// pbrt-v4 `Map::applyMap(idx) = mat_d * idx + vec_d`. The
+    /// NanoVDB `Map::applyMap(idx) = mat_d * idx + vec_d`. The
     /// "voxel" -> "world" direction.
     pub fn apply_map(&self, idx: Vec3d) -> Vec3d {
         let x = self.mat_d[0][0] * idx.x
@@ -78,7 +78,7 @@ impl Map {
         Vec3d::new(x, y, z)
     }
 
-    /// pbrt-v4 `Map::applyInverseMap(world) = inv_mat * (world - vec)`.
+    /// NanoVDB `Map::applyInverseMap(world) = inv_mat * (world - vec)`.
     /// The "world" -> "voxel" direction.
     pub fn apply_inverse_map(&self, world: Vec3d) -> Vec3d {
         let d = [

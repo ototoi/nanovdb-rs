@@ -10,6 +10,11 @@ readme = "README.md"
 keywords = ["nanovdb", "openvdb", "volumetric", "rendering", "vdb"]
 categories = ["rendering::data-formats", "graphics", "no-std::no-alloc"]
 
+[workspace]
+members = [".", "nanovdb-rs-tests"]
+default-members = ["."]
+resolver = "2"
+
 [dependencies]
 memmap2 = "0.9"
 flate2 = { version = "1", optional = true }

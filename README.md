@@ -2,62 +2,120 @@
 
 [![License](https://img.shields.io/github/license/ototoi/nanovdb-rs)](LICENSE)
 
-A small, pure-Rust reader for **NanoVDB** (`.nvdb`) sparse volumetric grid
-files — the static runtime form of OpenVDB used by pbrt-v4 and other
-modern renderers for fog, fire, cloud, and similar volumetric assets.
+`nanovdb-rs` is a standalone, pure-Rust reader for NanoVDB (`.nvdb`)
+sparse volumetric grid files. It provides memory-mapped file access,
+per-grid metadata, coordinate transforms, and FloatGrid sampling without
+depending on a renderer or scene repository.
 
-The crate provides memory-mapped file access, per-grid metadata, raw grid
-bytes, world/index coordinate transforms, and FloatGrid point sampling. It
-is designed as a standalone NanoVDB reader for applications that need to
-inspect or sample sparse volumetric data.
+## Features
 
-## Status
+- Memory-mapped access to uncompressed grid data
+- ZIP (zlib) compressed segments through the default `zip` feature
+- Multi-segment and multi-grid files
+- Grid metadata: name, type, voxel count, voxel size, bounding boxes, and version
+- Raw grid bytes for application-specific tree access
+- FloatGrid voxel lookup through `ReadAccessor`
+- Trilinear FloatGrid sampling through `create_sampler1`
+- World/index coordinate transforms
+- Validated zero-copy FloatGrid sampling through `ValidatedFloatTree`
 
-- [x] Memory-mapped, zero-copy file reader
-- [x] Multi-segment / multi-grid files
-- [x] Per-grid metadata: name, value type, voxel size, world / index
-      bounding box, voxel count, version
-- [x] Raw grid blob handed back so downstream code can do its own tree
-      walk
-- [x] ZIP (zlib) compressed segments (default `zip` feature, via
-      `flate2`)
-- [x] In-crate NanoVDB tree traversal and voxel point lookup for `FloatGrid`
-      (`ReadAccessor`) with trilinear interpolation + index<->world transform
-- [ ] `Vec3f` / `Double` grid accessors
-- [ ] BLOSC compressed segments
+Currently unsupported:
 
-## Usage
+- BLOSC compressed segments
+- Full `Double` and `Vec3f` tree accessors
+
+## Installation
+
+Add the crate to your application:
+
+```toml
+[dependencies]
+nanovdb-rs = "0.0.5"
+```
+
+ZIP support is enabled by default. To disable it:
+
+```toml
+[dependencies]
+nanovdb-rs = { version = "0.0.5", default-features = false }
+```
+
+## Library usage
 
 ```rust
-use nanovdb_rs::{NvdbFile, Vec3d};
+use nanovdb_rs::{create_sampler1, NvdbFile, Vec3d};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let file = NvdbFile::open("bunny_cloud.nvdb")?;
+    let file = NvdbFile::open("volume.nvdb")?;
+
     for grid in file.grids() {
         println!(
-            "{} ({:?}, {} voxels, bbox {:?}..{:?})",
+            "{}: {:?}, {} voxels",
             grid.name(),
             grid.value_type(),
             grid.voxel_count(),
-            grid.metadata.index_bbox_min,
-            grid.metadata.index_bbox_max,
         );
-        // Random-access a float grid via a NanoVDB-style sampler.
-        if let Some(mut acc) = grid.float_read_accessor() {
-            let idx = grid.world_to_index(Vec3d::new(0.0, 0.0, 0.0)).unwrap();
-            println!(
-                "  background={} at world (0,0,0) -> idx ({:.3}, {:.3}, {:.3}), value={}",
-                acc.background(),
-                idx.x, idx.y, idx.z,
-                nanovdb_rs::create_sampler1(&mut acc).sample([idx.x, idx.y, idx.z]),
-            );
+
+        if let Some(mut accessor) = grid.float_read_accessor() {
+            let index = grid
+                .world_to_index(Vec3d::new(0.0, 0.0, 0.0))
+                .ok_or("missing grid map")?;
+            let value = create_sampler1(&mut accessor).sample([index.x, index.y, index.z]);
+            println!("  sample at world origin: {value}");
         }
     }
+
     Ok(())
 }
 ```
 
+## Inspect example
+
+The repository includes a small example that prints grid metadata and samples
+the center of each Float grid:
+
+```bash
+cargo run --example inspect -- path/to/volume.nvdb
+```
+
+The example accepts any `.nvdb` file and does not require test fixtures or
+another renderer.
+
+## Workspace tests
+
+The repository is a Cargo workspace with two packages:
+
+- `nanovdb-rs`: the publishable library crate
+- `nanovdb-rs-tests`: non-publishable integration tests for real `.nvdb` files
+
+The default commands target only the library crate:
+
+```bash
+cargo test
+cargo check --examples
+```
+
+To run the real-file tests as well:
+
+```bash
+cargo test --workspace
+```
+
+The integration fixtures are stored under
+`nanovdb-rs-tests/fixtures/` and tracked with Git LFS. A checkout without the
+LFS objects causes these tests to fail with an instruction to run `git lfs
+pull`. An alternate fixture root can be supplied with
+`NANOVDB_TEST_FIXTURE_ROOT`.
+
+Only the library crate is published:
+
+```bash
+cargo publish -p nanovdb-rs
+```
+
+The `nanovdb-rs-tests` package has `publish = false`, so its tests and large
+fixtures are not included in the `nanovdb-rs` crates.io package.
+
 ## License
 
-Mozilla Public License 2.0, matching upstream OpenVDB/NanoVDB. See
-[`LICENSE`](LICENSE).
+Mozilla Public License 2.0. See [`LICENSE`](LICENSE).
