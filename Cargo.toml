@@ -11,7 +11,7 @@ keywords = ["nanovdb", "openvdb", "volumetric", "rendering", "vdb"]
 categories = ["rendering::data-formats", "graphics", "no-std::no-alloc"]
 
 [workspace]
-members = ["nanovdb-rs-tests"]
+members = [".", "nanovdb-rs-tests"]
 default-members = ["."]
 resolver = "2"
 
