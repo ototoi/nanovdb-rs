@@ -87,14 +87,14 @@ impl TreeData {
 /// use fixed-layout reads without rechecking node ranges in the sampling
 /// loop. The view is tied to the exact byte slice it validated.
 #[derive(Debug, Clone, Copy)]
-pub struct ValidatedFloatTree<'a> {
+pub struct FloatValidatedTree<'a> {
     bytes: &'a [u8],
     background: f32,
     root_abs: usize,
     root_table_size: u32,
 }
 
-impl<'a> ValidatedFloatTree<'a> {
+impl<'a> FloatValidatedTree<'a> {
     pub fn new(bytes: &'a [u8]) -> Option<Self> {
         if cfg!(target_endian = "big") || bytes.len() < GRID_DATA_SIZE + 64 {
             return None;

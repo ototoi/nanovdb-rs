@@ -1,4 +1,4 @@
-use nanovdb_rs::{ReadAccessor, ValidatedFloatTree, Vec3f};
+use nanovdb_rs::{ReadAccessor, ValidatedFloatTree, ValidatedTree, Vec3f};
 
 const GRID_DATA_SIZE: usize = 672;
 const ROOT_OFFSET: usize = 64;
@@ -64,4 +64,7 @@ fn reads_a_vec3f_root_tile() {
     let accessor = ReadAccessor::<Vec3f>::from_grid_bytes(&bytes).expect("Vec3f accessor");
     assert_eq!(accessor.background(), Vec3f::new(1.0, 1.0, 1.0));
     assert_eq!(accessor.get_value([0, 0, 0]), Vec3f::new(2.0, 3.0, 4.0));
+
+    let tree = ValidatedTree::<Vec3f>::new(&bytes).expect("validated Vec3f tree");
+    assert_eq!(tree.get_value([0, 0, 0]), Vec3f::new(2.0, 3.0, 4.0));
 }
