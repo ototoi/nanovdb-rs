@@ -64,4 +64,5 @@ pub use sample_from_voxels::{create_sampler1, SampleFromVoxels};
 pub use tree_accessor::{ReadAccessor, ValidatedTree};
 pub type ValidatedFloatTree<'a> = ValidatedTree<'a, f32>;
 pub use tree_data::TreeData;
+pub type ValidatedVec3fTree<'a> = ValidatedTree<'a, Vec3f>;
 pub use types::{GridClass, GridType, Vec3d, Vec3f};
