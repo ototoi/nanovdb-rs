@@ -28,15 +28,15 @@ impl Vec3f {
 }
 
 /// Random-access reader for a `Vec3f` NanoVDB tree.
-pub struct Vec3fReadAccessor<'a> {
+pub struct Vec3fValidatedTree<'a> {
     bytes: &'a [u8],
     background: Vec3f,
     root_abs: usize,
     root_table_size: u32,
 }
 
-impl<'a> Vec3fReadAccessor<'a> {
-    pub fn from_grid_bytes(bytes: &'a [u8]) -> Option<Self> {
+impl<'a> Vec3fValidatedTree<'a> {
+    pub fn new(bytes: &'a [u8]) -> Option<Self> {
         let header = GridDataHeader::parse(bytes)?;
         if GridType::from_raw(header.grid_type) != GridType::Vec3f {
             return None;
@@ -122,6 +122,27 @@ impl<'a> Vec3fReadAccessor<'a> {
                 .expect("validated Vec3f leaf value");
         }
         read_vec3f(self.bytes, lower_entry).expect("validated Vec3f lower value")
+    }
+}
+
+/// Random-access accessor over a validated `Vec3f` NanoVDB tree.
+pub struct Vec3fReadAccessor<'a> {
+    tree: Vec3fValidatedTree<'a>,
+}
+
+impl<'a> Vec3fReadAccessor<'a> {
+    pub fn from_grid_bytes(bytes: &'a [u8]) -> Option<Self> {
+        Some(Self {
+            tree: Vec3fValidatedTree::new(bytes)?,
+        })
+    }
+
+    pub fn background(&self) -> Vec3f {
+        self.tree.background()
+    }
+
+    pub fn get_value(&self, ijk: [i32; 3]) -> Vec3f {
+        self.tree.get_value(ijk)
     }
 }
 

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::tree_f32::{FloatReadAccessor, FloatValidatedTree, TreeData};
-use crate::tree_vec3f::{Vec3f, Vec3fReadAccessor};
+use crate::tree_vec3f::{Vec3f, Vec3fReadAccessor, Vec3fValidatedTree};
 
 enum Accessor<'a> {
     Float(FloatReadAccessor<'a>),
@@ -10,7 +10,7 @@ enum Accessor<'a> {
 
 enum Validated<'a> {
     Float(FloatValidatedTree<'a>),
-    Vec3f(Vec3fReadAccessor<'a>),
+    Vec3f(Vec3fValidatedTree<'a>),
 }
 
 /// A validated, typed view of a NanoVDB tree.
@@ -38,7 +38,7 @@ impl<'a> ValidatedTree<'a, f32> {
 impl<'a> ValidatedTree<'a, Vec3f> {
     pub fn new(bytes: &'a [u8]) -> Option<Self> {
         Some(Self {
-            inner: Validated::Vec3f(Vec3fReadAccessor::from_grid_bytes(bytes)?),
+            inner: Validated::Vec3f(Vec3fValidatedTree::new(bytes)?),
             marker: PhantomData,
         })
     }
